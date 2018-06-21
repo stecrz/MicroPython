@@ -1,9 +1,9 @@
 from machine import Pin, I2C, SPI
 from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms
-#from display import Display
-from ecu import CBR500Sniffer
-from io import OutputController
-from power import setup_motion_switch
+#from other.display import Display
+from honda.ecu import CBR500Sniffer
+from honda.io import OutputController
+from honda.power import setup_motion_switch
 
 
 ADDR_MCP1 = 0x22

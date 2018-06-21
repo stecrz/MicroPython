@@ -1,5 +1,5 @@
 from utime import sleep_ms, ticks_ms as tms, ticks_diff as tdiff
-from mcp import MCP23017
+from other.mcp import MCP23017
 
 
 class OutputController:
