@@ -8,41 +8,45 @@ class HondaECU:
 
     TX_DELAY = 25  # minimum delay between two write-procedures on the UART (ms)
 
-    def __init__(self, uart_id=0, baud=10400, uart_timeout=2000, tx_pin=1, rx_pin=3):
+    def __init__(self, uart, baud=10400, uart_timeout=500, tx_pin=1, rx_pin=3):
         # save params for init method
         self.__txp = tx_pin
         self.__rxp = rx_pin
+
         self.__baud = baud
         self.__uart_to = uart_timeout
 
-        self._uart = UART(uart_id, baud)
+        self._uart = uart
         self._wTmr = tms()  # to make sure there is a delay between two msgs being sent over UART
 
         self.ready = False  # set to False whenever the ECU has to be woken up using init-method
 
-    def init(self):
-        # Performs the ECU wakeup and initialize procedure. Returns True if it was finished successfully
-        # and false it the procedure failed.
+    def init(self, timeout=10000):
+        # Performs the ECU wakeup and initialize procedure if required (not ready).
+        # Returns True if it was finished successfully and false it the procedure failed (= timeout).
         # Also setup K-line by pulling it low before (what uart.sendbreak() normally does).
 
-        # K-line pulldown: only has to be done whenever the ECU was turned off
-        tx = Pin(self.__txp, Pin.OUT, None)  # => pulls RX LOW (only when ECU connection achieved for first time)
-        tx(0)
-        sleep_ms(70)
-        tx(1)
-        sleep_ms(130)
-        del tx
+        tmr = tms()
+        while not self.ready and tdiff(tms(), tmr) < timeout:
+            # K-line pulldown: only has to be done whenever the ECU was turned off
+            tx = Pin(self.__txp, Pin.OUT)  # => pulls RX LOW (only when ECU connection achieved for first time)
+            tx(0)
+            sleep_ms(70)
+            tx(1)
+            sleep_ms(130)
+            del tx
 
-        self._uart.init(self.__baud, timeout=self.__uart_to, bits=8, parity=None, stop=1)
-        self._wTmr = tms()
+            self._uart.init(self.__baud, timeout=self.__uart_to, bits=8, parity=None, stop=1)
+            self._wTmr = tms()
 
-        try:
-            self.query((0xFE,), 0xFF)  # no resp excepted. alt: use 0x72 instead of 0xFF for response rType=0E
-            sleep_ms(200)  # default delay might not be enough, just to be safe on startup
-            self.diag_query(0x00, 0xF0)  # return packet (02 04 00 FA) is validated, Exception otherwise
-            self.ready = True
-        except HondaECU.Error:
-            self.ready = False
+            try:
+                self.query((0xFE,), 0xFF)  # no resp excepted. alt: use 0x72 instead of 0xFF for response rType=0E
+                sleep_ms(200)  # default delay might not be enough, just to be safe on startup
+                self.diag_query(0x00, 0xF0)  # return packet (02 04 00 FA) is validated, Exception otherwise
+                self.ready = True
+            except HondaECU.Error:
+                sleep_ms(500)  # relax
+                pass
 
         return self.ready
 
@@ -135,8 +139,8 @@ class CBR500Sniffer(HondaECU):
     # (alt.: approximated formula: 2736.8 * x^-1.577)
     GEAR_RATIO_THRESH = (400, 120, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 1,2,3,4,5,6 (above first = neutral)
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, uart):  # UART will be reinitialized (baudrate, parity, ...), just object required
+        super().__init__(uart)
 
         # rare register data, e.g. regMap[0x11][13] = 14th byte (index 13) in table 0x11 as unsigned integer
         TABLES = ((0x11, 20), (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21), (0xD1, 6))  # all tables + length

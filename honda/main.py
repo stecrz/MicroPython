@@ -1,9 +1,10 @@
-from machine import Pin, I2C, SPI
+from machine import Pin, I2C, SPI, UART
+from os import dupterm  # for enabling/disabling REPL
 from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms
-#from other.display import Display
-from honda.ecu import CBR500Sniffer
-from honda.io import OutputController
-from honda.power import setup_motion_switch
+from display import Display
+from ecu import CBR500Sniffer
+from io import OutputController
+from power import setup_motion_switch
 
 
 ADDR_MCP1 = 0x22
@@ -15,48 +16,43 @@ SDA = 4
 SHIFT_LIGHT_RPM_THRESH = 8000
 
 
-def main():
-    #display = Display(I2C(-1, Pin(5), Pin(4)), 128, 64)
-    #display.clear()
+uart0 = UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
 
+
+def main():
     # setup required buses:
     i2c = I2C(-1, Pin(SCL), Pin(SDA))
-    #spi = SPI(1, polarity=0, phase=0)
-    #cs = Pin(CS, Pin.OUT)
+    spi = SPI(1, polarity=0, phase=0)
+    cs = Pin(CS, Pin.OUT)
 
     # initialize all my interfaces:
-    ecu = CBR500Sniffer()
+    display = Display(i2c, 128, 64)
+    ecu = CBR500Sniffer(uart0)
     cockpit = OutputController(i2c, ADDR_MCP1)
-    #setup_motion_switch(spi, cs)
+    setup_motion_switch(spi, cs)
 
+    display.println("Hello")
     cockpit.led_y(1)
     cockpit.seg_char('C')
-    tmr_init = tms()
-    while not ecu.init():  # try to connect to ECU
-        cockpit.seg_dot()  # blink the 7-segment dot to indicate activity
-        if tdiff(tms(), tmr_init) > 10000:  # check for connection timeout
-            cockpit.seg_dot(0)
-            cockpit.seg_char('L')
+    if not ecu.init():  # try to connect to ECU
+        display.println("init failed")
+        cockpit.seg_char('L')
+        return
     cockpit.seg_char('A')
+    display.println("init ok")
     cockpit.seg_dot(0)  # switch dot off (if on)
     cockpit.led_y(0)
 
     while True:
         try:
-            while not ecu.ready:
+            if not ecu.ready:
                 cockpit.seg_char('F')
-                return
-                # display.print("Connect...")
-                # if not ecu.init():
-                #     display.println(" Fail!")
-                # else:
-                #     display.println(" O.K.")
-
-            # logmsg = ecu.update()
-            # if logmsg != "":
-            #     #with open("honda.log", "a") as file:
-            #     #    file.write(logmsg)
-            #     display.println(logmsg)
+                display.print("Connect...")
+                if not ecu.init():
+                    display.println(" Fail!")
+                    return
+                else:
+                    display.println(" O.K.")
 
             ecu.update()
 
@@ -77,9 +73,23 @@ def main():
                     cockpit.seg_dot_blink()
         except Exception as ex:
             cockpit.seg_char('E')
-            #display.println(repr(ex))
-            sleep_ms(500)
+            display.println(repr(ex))
 
 
 if __name__ == '__main__':
-    main()
+    # dupterm(None)  # disable output/input on WebREPL
+    # dupterm(None, 1)  # disable REPL (v1.9.4)
+
+    ex = None
+    try:
+        main()
+    except Exception as e:
+        ex = e  # save exception that happend in my program using UART0
+
+    uart0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
+
+    if ex is not None:
+        raise ex  # show the exception on REPL
+
+    # dupterm(uart0)  # enable WebREPL
+    # dupterm(uart0, 1)  # enable REPL (v1.9.4)
