@@ -29,6 +29,7 @@ def main():
     cockpit = OutputController(i2c, ADDR_MCP1)
     #setup_motion_switch(spi, cs)
 
+    cockpit.led_y(1)
     cockpit.seg_char('C')
     tmr_init = tms()
     while not ecu.init():  # try to connect to ECU
@@ -38,6 +39,7 @@ def main():
             cockpit.seg_char('L')
     cockpit.seg_char('A')
     cockpit.seg_dot(0)  # switch dot off (if on)
+    cockpit.led_y(0)
 
     while True:
         try:

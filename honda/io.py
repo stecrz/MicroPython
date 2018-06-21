@@ -1,5 +1,5 @@
 from utime import sleep_ms, ticks_ms as tms, ticks_diff as tdiff
-from other.mcp import MCP23017
+from honda.mcp23017 import MCP23017
 
 
 class OutputController:
