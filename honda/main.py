@@ -1,25 +1,33 @@
-from machine import UART
-from math import log
-from utime import ticks_diff as tdiff, ticks_ms as tms, slp
-from ecu import CBR500Sniffer
+# NOTE: NEXT TIME USE STANDARD IMPORTS INSTEAD OF FROM-IMPORTS. FROM HAS NO ADVANTAGE
+
+# Required modules:
+# User: ecu, ctrl, net, pwr
+# Drivers (semi-user): webserver, mcp23017 (don't use general mcp because of code length)
+# Drivers: uasyncio
+# Other files: html folder
+
+#from net import NetServer #todo
+from ecu import CBR500Sniffer, ECUError
 from ctrl import IOControl, blink
-from uasyncio import get_event_loop, sleep_ms as d  # for shorting delays: "await uasyncio.sleep_ms(1)" -> "await d(1)"
 from pwr import deepsleep
-from net import NetworkIface
+from uasyncio import get_event_loop, sleep_ms as d  # for shorting delays: "await uasyncio.sleep_ms(1)" -> "await d(1)"
+from machine import UART
+from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms as sleep_ms
+from math import log
 
 
-SHIFT_LIGHT_RPM_THRESH = 6000  # rpm
-SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
-SW_BL_FLASH_COUNT = 8  # flash break light _ times when pressed
-SW_PWRUP_TIMEOUT = 8000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise special function
-NET_ACTIVE_TIME_MIN = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
+_SHIFT_LIGHT_RPM_THRESH = 6000  # rpm
+_SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
+_SW_BL_FLASH_COUNT = 8  # flash break light _ times when pressed
+_SW_PWRUP_TIMEOUT = 8000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise special function
+_NET_ACTIVE_TIME_MIN = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
 
 
-UART0 = UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
+_UART0 = UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
 loop = get_event_loop()
-ecu = CBR500Sniffer(UART0)
+ecu = CBR500Sniffer(_UART0)
 ctrl = IOControl()
-net = NetworkIface("APname", "APpass")  # start by running network handler, stop by calling net.stop()
+#net = NetServer()  # start by running network handler, stop by calling net.stop() todo
 
 
 def reset_loop():  # resets the asyncio eventloop by removing all coros from run and wait queue
@@ -55,11 +63,11 @@ async def task_ecu():
                 await ecu.update(tab)
                 ctrl.led_y(0)  # todo
                 err_counter = 0  # update was successful
-            except CBR500Sniffer.Error:
+            except ECUError:
                 err_counter += 1
                 if err_counter >= 10:
                     ctrl.seg_char('E')
-                    slp(5000)
+                    sleep_ms(5000)
                     break
             except Exception as ex:
                 ctrl.seg_char('F')  # TODO
@@ -67,7 +75,7 @@ async def task_ecu():
 
             await d(100)  # not too many updates per second  TODO too slow?
 
-        await d(0) # todo req?
+        await d(0)  # todo req?
 
 
 async def task_ctrl():  # mode based on switch (e.g. break light flash)
@@ -76,7 +84,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
 
     while True:
         # check switch (BLF and special modes):
-        if ctrl.sw_pressed != ctrl.switch_pressed():  # just pressed or released (state is updated)
+        if ctrl.sw_pressed != ctrl.sw_pressed():  # just pressed or released (state is updated)
             if ctrl.sw_pressed:  # just pressed:
                 sw_tmr = tms()  # set timer to check duration later
                 if ctrl.mode != 0:  # switch pressed while in special mode
@@ -87,11 +95,11 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     ctrl.mode = 0  # reset to mode 0 without break light flashing
                     ctrl.led_g(0)
                 elif ctrl.mode == 0:
-                    for _ in range(SW_BL_FLASH_COUNT):
+                    for _ in range(_SW_BL_FLASH_COUNT):
                         ctrl.set_rly('BL', 1)
-                        slp(90)
+                        sleep_ms(90)
                         ctrl.set_rly('BL', 0)
-                        slp(70)
+                        sleep_ms(70)
                 elif ctrl.mode == 1:
                     lap_tmr = tms()  # this val is only used if this mode is set when driving and then reaching >100
                 elif ctrl.mode == 7:  # activate network (reactivate if already active, handler will do the job)
@@ -101,11 +109,11 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
 
                 ctrl.seg_clear()
         elif ctrl.sw_pressed and ctrl.mode >= 0:  # held down -> check duration
-            if tdiff(tms(), sw_tmr) >= SW_HOLD_THRESH:  # special mode
+            if tdiff(tms(), sw_tmr) >= _SW_HOLD_THRESH:  # special mode
                 ctrl.mode += 1
                 ctrl.seg_digit(ctrl.mode % 10)
                 ctrl.led_g(1)
-                slp(150)  # TODO: yield if other handlers dont set 7seg
+                sleep_ms(150)  # TODO: yield if other handlers dont set 7seg
                 ctrl.led_g(0)
                 sw_tmr = tms()  # for next special mode
             if ctrl.mode != 0:
@@ -124,7 +132,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     lt_s = lap_time // 1000  # seconds (front part) e.g. 15
                     lt_h = round((lap_time - lt_s * 1000) / 100)  # hundreth e.g. 8
                     ctrl.seg_clear()
-                    slp(1000)  # TODO: yield if other handlers dont set 7seg
+                    sleep_ms(1000)  # TODO: yield if other handlers dont set 7seg
                     ctrl.seg_show_num(lt_s, lt_h)
                     ctrl.led_g(0)
                     ctrl.mode = 0
@@ -147,7 +155,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     ctrl.seg_char('-')
             else:
                 # shift light (= flashing gear on display) if required:
-                if ecu.rpm > SHIFT_LIGHT_RPM_THRESH:
+                if ecu.rpm > _SHIFT_LIGHT_RPM_THRESH:
                     ctrl.seg_clear()
                     await d(50)
                 ctrl.seg_digit(ecu.gear)
@@ -158,6 +166,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
 
 
 async def task_net():  # runs until network is not active any more for some reason (if you stop)
+    return #todo
     if net.active:  # another task_net is already running. stop it by calling
         net.stop()  # which will cause their loops (see beyond) to exit
         await d(1000)  # just make sure the another handlers are called meanwhile (delay >= all other delays below)
@@ -188,8 +197,8 @@ def main():
     # todo: GPS/GSM test, maybe SMS
 
     tmr = tms()
-    while ctrl.switch_pressed():  # wait for switch to be released. NC = remains on until timeout
-        if tdiff(tms(), tmr) > SW_PWRUP_TIMEOUT:  # break light flash switch NC or hold down long for special fun
+    while ctrl.sw_pressed():  # wait for switch to be released. NC = remains on until timeout
+        if tdiff(tms(), tmr) > _SW_PWRUP_TIMEOUT:  # break light flash switch NC or hold down long for special fun
             loop.create_task(task_net())  # special fun = network active while bike powered
             break
     else:  # not pressed long enough
@@ -205,7 +214,7 @@ def main():
 
             # -> bike powered off
             ctrl.reset()
-            if ctrl.switch_pressed():  # switch held down during shutdown
+            if ctrl.sw_pressed():  # switch held down during shutdown
                 # -> keep network interface (relay control) active for at least <net_time> ms, then deepsleep
                 reset_loop()  # clear ecu and ctrl task as these are not required now
                 loop.create_task(task_net())  # and start network task (already running?, will do a restart, but ok...)
@@ -216,7 +225,7 @@ def main():
                 deepsleep()
 
         # -> only network running
-        loop.run_until_complete(await_pwr(True, ctrl.mode * 60 if ctrl.mode > 0 else NET_ACTIVE_TIME_MIN))
+        loop.run_until_complete(await_pwr(True, ctrl.mode * 60 if ctrl.mode > 0 else _NET_ACTIVE_TIME_MIN))
         # waits for power on, then continue outer loop; goes to deepsleep if timeout exceeded
 
 
@@ -230,7 +239,7 @@ if __name__ == '__main__':
     except Exception as e:
         exc = e  # save exception that happend in my program using UART0
 
-    UART0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
+    _UART0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
 
     if exc is not None:
         raise exc  # show the exception on REPL

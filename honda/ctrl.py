@@ -15,7 +15,10 @@ async def blink(outfun, d1=150, d2=0):  # coro to indicate activity
         await d(d2)
 
 
-ADDR_MCP1 = 0x22
+_SCL = 5
+_SDA = 4
+
+_ADDR_MCP1 = 0x22
 _LED_G = 11
 _LED_Y = 8
 _BUZZER = 14  # TODO
@@ -26,12 +29,12 @@ _CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'H': 0x76, 'I': 0x06,
               'J': 0x0E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E,
               'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'u': 0x1C, '-': 0x40}
 
-ADDR_MCP2 = 0x24
+_ADDR_MCP2 = 0x24
 _IN_SWITCH_BLF = 8  # input pin for break light flash switch pin on MCP
 _IN_PWR = 10  # input pin for powered status of the bike
 
 # MCP output pins for relays (for class user; using constants internally!):
-RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3}
+_RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3}
 
 
 class IOControl:
@@ -40,9 +43,9 @@ class IOControl:
     # The 7 segment display must be connected to the MCP on pins GPA0 (a) to GPA7 (h).
 
     def __init__(self):
-        i2c = I2C(-1, Pin(5), Pin(4))
+        i2c = I2C(-1, Pin(_SCL), Pin(_SDA))
 
-        self._mcp1 = MCP23017(i2c, ADDR_MCP1, def_inp=0, def_val=1)  # all outputs, all high
+        self._mcp1 = MCP23017(i2c, _ADDR_MCP1, def_inp=0, def_val=1)  # all outputs, all high
         # for pin in range(8):
         #     self._mcp1.decl_output(pin)
         # self._mcp1.decl_output(OutputController._LED_Y)
@@ -60,9 +63,9 @@ class IOControl:
         #                on shutdown: mode = 1-9: network control stays on for <mode> hours
         #                             mode >= 10: return to console (hard reset required for normal operation)
         self.mode = 0
-        self.rly = {k: False for k in RLY}  # current relais states (last set)
+        self.rly = {k: False for k in _RLY}  # current relais states (last set)
 
-        self._mcp2 = MCP23017(i2c, ADDR_MCP1, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
+        self._mcp2 = MCP23017(i2c, _ADDR_MCP1, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
         for pin in range(4):  # reset relay outputs (off)
             self._mcp2.decl_output(pin)
             self._mcp2.output(pin, 0)
@@ -160,9 +163,9 @@ class IOControl:
             return
         if val != self.rly[name]:
             self.rly[name] = val
-            self._mcp2.output(RLY[name], val)
+            self._mcp2.output(_RLY[name], val)
 
-    def switch_pressed(self):  # returns True if the switch is pressed and False if it is not
+    def sw_pressed(self):  # returns True if the switch is pressed and False if it is not
         self.sw_pressed = self._mcp2.input(_IN_SWITCH_BLF)
         return self.sw_pressed
 

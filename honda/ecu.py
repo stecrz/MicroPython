@@ -3,27 +3,27 @@ from utime import sleep_ms, ticks_ms as tms, ticks_diff as tdiff
 from uasyncio import sleep_ms as d
 
 
-def to_hex(b):  # bytes to hex string
+_TX_PIN = 1
+
+
+def _to_hex(b):  # bytes to hex string
     return ' '.join('%02X' % x for x in b) if b is not None else "None"
 
 
+class ECUError(Exception):  # eg wrong checksum
+    pass
+
+
 class HondaECU:
-    # This class is asynchronous. On errors an HondaECU.Error will be raised. If it is an UART
+    # This class is asynchronous. On errors an ECUError will be raised. If it is an UART
     # timeout (meaning we wanted to read x bytes from UART but it took too long) this ready
     # state will be set to False in addition.
 
-    TX_DELAY = 25  # minimum delay between two write-procedures on the UART (ms)
+    _TX_DELAY = 25  # minimum delay between two write-procedures on the UART (ms)
 
-    class Error(Exception):  # eg wrong checksum
-        pass
-
-    def __init__(self, uart, baud=10400, uart_timeout=300, tx_pin=1):
+    def __init__(self, uart, uart_timeout=300):
         # note that <uart_timeout> is the timeout for reading a single byte from UART, meaning that reading e. g.
         # 10 bytes could take up to 10*<uart_timeout>. timeout exceed cause an Error and set ECU to not ready state
-
-        # save params for init method
-        self.__txp = tx_pin
-        self.__baud = baud
 
         self._uart = uart
         self._uart_to = uart_timeout
@@ -44,14 +44,14 @@ class HondaECU:
             self.connecting = True
 
             # K-line pulldown: only has to be done whenever the ECU was turned off
-            tx = Pin(self.__txp, Pin.OUT)  # => pulls RX LOW (only when ECU connection achieved for first time)
+            tx = Pin(_TX_PIN, Pin.OUT)  # => pulls RX LOW (only when ECU connection achieved for first time)
             tx(0)
             sleep_ms(70)  # no intr here
             tx(1)
             del tx
             sleep_ms(130)  # TODO await d(130)
 
-            self._uart.init(self.__baud, timeout=self._uart_to, bits=8, parity=None, stop=1)
+            self._uart.init(10400, timeout=self._uart_to, bits=8, parity=None, stop=1)
             self._wTmr = tms()
 
             try:
@@ -60,7 +60,7 @@ class HondaECU:
                 await self.diag_query(0x00, 0xF0)  # return packet (02 04 00 FA) is validated, Exception otherwise
                 self.ready = True  # this point is only reached when no error occurs
                 return
-            except HondaECU.Error:
+            except ECUError:
                 if tdiff(self._wTmr, tmr) > timeout:
                     return
                 await d(400)  # relax
@@ -71,7 +71,7 @@ class HondaECU:
         # Performs a diagnostic query. See query method, but additionally verifies the subtype.
         resp = await self.query((0x72,), sType, *data, rType=(0x02,))  # subtype is part of data
         if resp[0] != sType:
-            raise HondaECU.Error(4)  # wrong subtype
+            raise ECUError(4)  # wrong subtype
         return resp[1:]
 
     async def query(self, qType, *qData, rType=None):
@@ -91,20 +91,20 @@ class HondaECU:
         # retrieve echo:
         echo = await self._uread(qLen)
         if echo != msg:
-            raise HondaECU.Error(1)  # wrong echo
+            raise ECUError(1)  # wrong echo
 
         # receive and check response, return data from reply:
         if rType is not None:
             rType = bytes(rType)
             if rType != await self._uread(len(rType)):
-                raise HondaECU.Error(2)  # wrong response type
+                raise ECUError(2)  # wrong response type
 
             rLen = await self._uread(1)
             rData = await self._uread(ord(rLen) - len(rType) - 2)  # rLen includes field: type, len, chk
             rChk = await self._uread(1)
 
-            if HondaECU._cksm(rType + rLen + rData) != ord(rChk):
-                raise HondaECU.Error(1)  # wrong checksum
+            if self._cksm(rType + rLen + rData) != ord(rChk):
+                raise ECUError(1)  # wrong checksum
 
             return rData
 
@@ -134,7 +134,7 @@ class HondaECU:
                             self.ready = False
                         else:
                             self._fir += 1
-                            raise HondaECU.Error(0)  # UART timeout
+                            raise ECUError(0)  # UART timeout
                     await d(0)
                 r += self._uart.read(1)
                 n -= 1
@@ -148,27 +148,28 @@ class HondaECU:
         # Waits for some ms, ensuring a minimum delay between two msgs (prevents UART timeout).
 
         diff = tdiff(tms(), self._wTmr)
-        if diff < HondaECU.TX_DELAY:
-            await d(HondaECU.TX_DELAY - diff)
+        if diff < HondaECU._TX_DELAY:
+            await d(HondaECU._TX_DELAY - diff)
         self._uart.write(msg)  # no StreamWriter, as it would cause too much scheduling
         self._wTmr = tms()
 
 
+# | GEAR | RATIO |
+# |--------------|
+# |   1  |  155  |
+# |   2  |   99  |
+# |   3  |   75  |
+# |   4  |   61  |
+# |   5  |   54  |
+# |   6  |   49  |
+# I am using thresholds, so e.g.: ratio > {ratio between 1 and 2} => gear 1
+# higher threshold = next gear indicated later; lower threshold = previous gear skipped earlier
+# (alt.: approximated formula: 2736.8 * x^-1.577)
+_GEAR_RATIO_THRESH = (400, 120, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 1,2,3,4,5,6 (above first = neutral)
+
+
 class CBR500Sniffer(HondaECU):
     # Class for reading the registers of a Honda CBR500R ECM.
-
-    # | GEAR | RATIO |
-    # |--------------|
-    # |   1  |  155  |
-    # |   2  |   99  |
-    # |   3  |   75  |
-    # |   4  |   61  |
-    # |   5  |   54  |
-    # |   6  |   49  |
-    # I am using thresholds, so e.g.: ratio > {ratio between 1 and 2} => gear 1
-    # higher threshold = next gear indicated later; lower threshold = previous gear skipped earlier
-    # (alt.: approximated formula: 2736.8 * x^-1.577)
-    GEAR_RATIO_THRESH = (400, 120, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 1,2,3,4,5,6 (above first = neutral)
 
     def __init__(self, uart):  # UART will be reinitialized (baudrate, parity, ...), just object required
         super().__init__(uart)
@@ -262,11 +263,11 @@ class CBR500Sniffer(HondaECU):
             return 0
 
         ratio = self.rpm / self.speed
-        if ratio > CBR500Sniffer.GEAR_RATIO_THRESH[0]:  # too high, clutch must be pulled
+        if ratio > _GEAR_RATIO_THRESH[0]:  # too high, clutch must be pulled
             self.gear = None
         else:
-            for i in range(1, len(CBR500Sniffer.GEAR_RATIO_THRESH)):
-                if ratio > CBR500Sniffer.GEAR_RATIO_THRESH[i]:
+            for i in range(1, len(_GEAR_RATIO_THRESH)):
+                if ratio > _GEAR_RATIO_THRESH[i]:
                     self.gear = i
                     break
             else:  # not above any threshold -> <=last -> last gear
