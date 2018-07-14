@@ -1,0 +1,9 @@
+{
+  "hostname": "Honda Bike",
+  "passwd": "AP-Password",
+  "port": 80,
+  "known": [
+    ["MyHomaNetworkSTA", "itsPassword"],
+    ["someOtherKnown", "pw"]
+  ]
+}
