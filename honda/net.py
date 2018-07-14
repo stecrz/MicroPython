@@ -71,7 +71,7 @@ class _NetClient(WebSocketClient):
     def execute(self, msg):  # msg received from websocket
         try:
             msg = json.loads(msg)  # can be multiple, therefore use single ifs beyond?
-            print(msg)
+            #print(msg)
 
             if 'SYN' in msg:
                 self.send(ACK=msg['SYN'])
@@ -200,7 +200,7 @@ class NetServer(WebSocketServer):
             cfg = json.loads(f.read())
             self._name = cfg["hostname"]
             self._pw = cfg["passwd"]
-            self._ports = cfg["port"]
+            self._port = cfg["port"]
             self._knets = tuple(tuple(idpw) for idpw in cfg["known"])
 
         self.active = False
@@ -217,13 +217,10 @@ class NetServer(WebSocketServer):
             self.active = False
             self._set_ap()
             self._set_sta()
-            self.server.stop()
-
-    def update(self):
-        self.server.process()  # update all clients and handle requests
+            super().stop()
 
     def client_count(self):
-        return self.server.nr_clients()
+        return len(self.clients)
 
     def _set_sta(self):
         sta = network.WLAN(network.STA_IF)
@@ -237,7 +234,7 @@ class NetServer(WebSocketServer):
                 # at the one with the strongest signal and checking if the network is in my database:
                 for net in sorted(sta.scan(), key=lambda n: n[3], reverse=True):
                     for knet in self._knets:  # check all known networks
-                        if net[0] == knet[0]:
+                        if net[0].decode('utf-8') == knet[0]:
                             sta.connect(knet[0], knet[1])
                             while sta.status() == network.STAT_CONNECTING:  # connecting ...
                                 pass
@@ -252,6 +249,8 @@ class NetServer(WebSocketServer):
                 else:  # no matching network found
                     sta.active(False)
 
+        #print(sta.ifconfig())
+
     def _set_ap(self):
         ap = network.WLAN(network.AP_IF)
         ap.active(self.active)
@@ -259,3 +258,5 @@ class NetServer(WebSocketServer):
         if self.active:
             ap.config(essid=self._name, password=self._pw)
             ap.ifconfig(_AP_CONF)
+
+        #print(ap.ifconfig())

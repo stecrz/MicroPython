@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>ESP8266 WebSocket Client</title>
+		<meta charset="UTF-8">
+	</head>
+	
+	<body>
+		<header>
+			<h1>ESP8266</h1>
+			<h2>WebSocket Client for 192.168.178.51 (fixed in JavaScript)</h2>
+		</header>
+		
+		Received: <br/>
+		<div id="response">
+			(nothing)
+		</div>
+		<div id="in_0" class="input_bt">IN0<div id="in_0_state">--</div></div>
+		<div id="out_0" class="output_bt" onclick="ws.send('Question')">OUT0<div id="out_0_state">--</div></div>
+
+		<script>			
+			var ws = null;
+			connect();
+			
+			function connect() {
+				ws = new WebSocket("ws://" + "192.168.178.51" + ":80");  //location.hostname
+				
+				ws.onopen = function() {
+					console.log("Start");
+					ws.send("Question");
+				}
+				
+				ws.onmessage = function(evt) {
+					// JSON.parse(evt.data);
+					update(evt.data);
+				}
+				
+				ws.onclose = function(evt) {
+					console.log("Closed");
+					document.getElementById("response").innerHTML = "Closed";
+				}
+			}
+			
+			function update(data) {
+				console.log("Update")
+				document.getElementById("response").innerHTML = data;
+			}
+		</script>
+	</body>
+</html>

@@ -176,7 +176,7 @@ async def task_net():  # runs until network is not active any more for some reas
         if net.client_count() == 0:
             await d(500)  # long delay, more time for ECU
         else:
-            net.update()  # performs all updates server <-> clients (including relays sets, ...)
+            net.process()  # performs all updates server <-> clients (including relays sets, ...)
             await d(0)  # short delay
 
 
