@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Scarlett Control</title>
+
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+		<meta name="apple-mobile-web-app-capable" content="yes"/>
+		<meta name="apple-mobile-web-app-status-bar-style" content="white"/>
+
+		<link rel="stylesheet" type="text/css" href="style.css" media="screen" />
+	</head>
+
+	<body>
+		<h1>Scarlett Control</h1>
+
+		<table class="relays">
+			<tr>
+				<td>Strom:</td>
+				<td>
+					<div class="switch">
+						<input id="ctrl.rly.IG" type="checkbox" class="switch-onoff">
+						<label for="ctrl.rly.IG" class="switch-label">
+							<span class="switch-inner"></span>
+							<span class="switch-nib"></span>
+						</label>
+					</div>
+					<span class="circle-spacer"></span>
+					<span class="circle" id="ctrl.powered"></span>
+				</td>
+			</tr>
+			<tr>
+				<td>Motor:</td>
+				<td>
+					<span id="ctrl.rly.ST" style="float:left;" class="holdbtn">START</span>
+					<span class="circle-spacer"></span>
+					<span class="circle" id="ecu.engine"></span>
+				</td>
+			</tr>
+			<tr>
+				<td>Bremslicht:</td>
+				<td>
+					<div class="switch">
+						<input id="ctrl.rly.BL" type="checkbox" class="switch-onoff">
+						<label for="ctrl.rly.BL" class="switch-label">
+							<span class="switch-inner"></span>
+							<span class="switch-nib"></span>
+						</label>
+					</div>
+				</td>
+			</tr>
+			<tr>
+				<td>Hupe:</td>
+				<td><span id="ctrl.rly.HO" class="holdbtn">HUPE</span></td>
+			</tr>
+		</table>
+
+		<div class="headline">
+			<span class="headline-text">ECU</span>
+			<span class="circle" id="ecu.ready"></span>
+		</div>
+
+		<table class="ecu">
+			<tr>
+				<td>Batterie:</td>
+				<td colspan="2"><span id="ecu.bat">~&nbsp;</span> V</td>
+				<td><div id="ctrl.mode" class="inputbtn clickable-framed-txt">~</div></td>
+			</tr>
+			<tr>
+				<td>Drehzahl:</td>
+				<td colspan="3"><span id="ecu.rpm">~&nbsp;</span> <small>min</small><sup>-1</sup></td>
+			</tr>
+			<tr>
+				<td>Tempo:</td>
+				<td colspan="3"><span id="ecu.speed">~&nbsp;</span> <sup>km</sup>/<sub>h</sub></td>
+			</tr>
+			<tr>
+				<td>Gang:</td>
+				<td><span id="ecu.gear">~&nbsp;</span></td>
+				<td colspan="2" style="text-align:center;">errechnet</td>
+			</tr>
+			<tr>
+				<td>Leerlauf:</td>
+				<td colspan="3"><span id="ecu.idle">~&nbsp;</span></td>
+			</tr>
+			<tr>
+				<td>Gasgriff:</td>
+				<td><span id="ecu.tp">~&nbsp;</span> %</td>
+				<td>TP:</td>
+				<td><span id="ecu.tp_v">~&nbsp;</span> V</td>
+			</tr>
+			<tr>
+				<td>Kühlmittel:</td>
+				<td><span id="ecu.ect">~&nbsp;</span> °C</td>
+				<td>ECT:</td>
+				<td><span id="ecu.ect_v">~&nbsp;</span> V</td>
+			</tr>
+			<tr>
+				<td>Luft:</td>
+				<td><span id="ecu.iat">~&nbsp;</span> °C</td>
+				<td>IAT:</td>
+				<td><span id="ecu.iat_v">~&nbsp;</span> V</td>
+			</tr>
+			<tr>
+				<td>Druck:</td>
+				<td><span id="ecu.map">~&nbsp;</span> <small>kPa</small></td>
+				<td>MAP:</td>
+				<td><span id="ecu.map_v">~&nbsp;</span> V</td>
+			</tr>
+			<tr>
+				<td>Ständer:</td>
+				<td colspan="3"><span id="ecu.sidestand">~&nbsp;</span></td>
+			</tr>
+			<tr>
+				<td>Einspritzzeit:</td>
+				<td><span id="ecu.fuelInjTime">~&nbsp;</span></td>
+				<td colspan="2" style="text-align:center;">tbd</td>
+			</tr>
+		</table>
+
+		<div class="esp-buttons">
+			<input id="ifconfig" type="button" class="clickbtn" value="IP STATUS">
+			<input id="reboot" type="button" class="clickbtn" value="NEUSTART">
+			<input id="deepsleep" type="button" class="clickbtn" value="STANDBY">
+			<input id="console" type="button" class="clickbtn" value="KONSOLE">
+		</div>
+
+		<div class="footer">
+			&#x00A9; 2018 &#x00B7; STECRZ &#x00B7;
+			Status: <span id="ackState">Starten...</span>
+		</div>
+		<script language="javascript" type="application/javascript" src="code.js"></script>
+	</body>
+</html>
+
+<!-- TODO: -->
+<!-- ECU Modus, BLF Switch-->
+<!-- ECU Datentabelle -->
+<!-- WLAN hinzufügen: Datenbank auf ESP, HTML-Clickbutton, JS handler wie bei alert() nur mit prompt() -->
+<!-- Play Tone (select list) -->
