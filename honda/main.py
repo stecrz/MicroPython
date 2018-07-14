@@ -2,7 +2,7 @@ from machine import UART
 from math import log
 from utime import ticks_diff as tdiff, ticks_ms as tms, slp
 from ecu import CBR500Sniffer
-from io import IOControl, blink
+from ctrl import IOControl, blink
 from uasyncio import get_event_loop, sleep_ms as d  # for shorting delays: "await uasyncio.sleep_ms(1)" -> "await d(1)"
 from pwr import deepsleep
 from net import NetworkIface
