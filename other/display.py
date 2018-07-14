@@ -1,8 +1,4 @@
-<<<<<<< HEAD
-import ssd1306  # cp ~/MicroPythonOLD/drivers/oled/ssd1306.py ~/MicroPythonOLD/ports/esp8266/scripts
-=======
 import ssd1306  # cp ~/MicroPythonOLD/drivers/display/ssd1306.py ~/MicroPythonOLD/ports/esp8266/scripts
->>>>>>> origin/master
 
 
 class Display:
