@@ -160,8 +160,8 @@ function sendVar(vname, val) {
 }
 
 function connect() {
-	ws = new WebSocket("ws://" + "192.168.178.51" + ":" + PORT);  // TODO remove
-	//ws = new WebSocket("ws://" + location.hostname + ":" + PORT);
+	//ws = new WebSocket("ws://" + "192.168.178.51" + ":" + PORT);  // TODO remove
+	ws = new WebSocket("ws://" + location.hostname + ":" + PORT);
 
 	ws.onopen = function() {
 		setTxt("ackState", "Gestartet");

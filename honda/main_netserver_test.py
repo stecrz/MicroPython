@@ -80,6 +80,6 @@ try:
     while True:
         net.process()  # update all clients and handle requests
         # some other stuff:
-        #ecu.update()
+        ecu.update()
 finally:
     net.stop()
