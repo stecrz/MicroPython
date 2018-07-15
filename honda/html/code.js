@@ -178,14 +178,14 @@ function connect() {
 				synNr++;
 				synTry++;
 				setTxt("ackState", "Warten (" + synNr + ")");
-				sendObj({'SYN': synNr}));
+				sendObj({'SYN': synNr});
 			}
 		}, WS_SYN_INTERVAL*1000);
 
 		synNr = 0;
 		ackNr = -1;
 		synTry = 1;
-		sendObj{{'SYN': 0}));  // first to enable buttons on first ACK
+		sendObj({'SYN': 0});  // first to enable buttons on first ACK
 	}
 
 	function isJSONDict(v) {
