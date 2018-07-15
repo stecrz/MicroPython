@@ -2,11 +2,13 @@ var $ = function(id) { return document.getElementById(id); };
 
 
 var PORT = 80;
-var WS_SYN_INTERVAL = 5;  // send SYN msg every _ s to check if connection is still ok ("server working?")
+var WS_SYN_INTERVAL = 4;  // send SYN msg every _ s to check if connection is still ok ("server working?")
+var WS_SYN_TRIES = 3;  // try one and the same SYN at most  _ times (e.g. 3 means: at most 2 retries)
 var WS_RECONN_TIMEOUT = 5;  // reconnect after _ s on close
 
 var ws;
 var synNr, ackNr;  // last SYN number that we sent to the server, last ACK that we received
+var synTry;  // count how many times I tried one and the same synNr
 
 var cache = {};
 
@@ -20,6 +22,9 @@ setupBtn("reboot", 	"Warnung: Der Chip wird über einen SOFTRESET zurückgesetzt
 setupBtn("deepsleep", "Warnung: Der Chip wird in den DEEPSLEEP-Modus versetzt.\n\nFortfahren?", true);
 setupBtn("console", "Warnung: Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen.\n\nFortfahren?", true);
 setupBtn("ifconfig");
+setupBtn("netls");
+setupBtnNetwork("netadd", "Name des zu neuen/geänderten Netzwerks:", "Netzwerksicherheitsschlüssel:");
+setupBtnNetwork("netrm", "Name des zu entfernenden Netzwerks:");
 setupBtnMode()  // for ctrl.mode
 
 resetAll();  // initial setup
@@ -55,7 +60,7 @@ function setupBtn(id, msg, reset=false) {
 	} else if (elem.classList.contains("clickbtn")) {
 		elem.onclick = function(evt) {
 			if (typeof msg === 'undefined' || confirm(msg))
-				sendCmd(this.id);
+				sendObj({'CMD': this.id});
 			if (reset) {
 				resetAll();
 				//ws.onclose();  // faster reconnect, but no good solution
@@ -64,11 +69,30 @@ function setupBtn(id, msg, reset=false) {
 		elem.ontouchstart = function() { };  // to show :active state
 	}
 }
+function setupBtnNetwork(id, hintId, hintPw=null) {
+	var elem = $(id);
+
+	elem.oncontextmenu = function(evt) { evt.preventDefault(); }  // class "switch"
+    elem.onclick = function(evt) {
+        var valId = prompt(hintId, '');
+        if (valId == null || valId === '')
+            return;
+        if (hintPw == null) {
+            sendObj({'CMD': this.id, 'ID': valId});
+            return;
+        }
+        var valPw = prompt(hintPw, '');
+        if (valPw == null || valPw === '')
+            return;
+        sendObj({'CMD': this.id, 'ID': valId, 'PW': valPw});
+    }
+    elem.ontouchstart = function() { };  // to show :active state
+}
 function setupBtnMode() {
-	var elem = $("ctrl.mode")
+	var elem = $("ctrl.mode");
 	elem.onclick = function(evt) {
 		if (evt.button != 2 && !elem.classList.contains("disabled")) {
-			var inp = parseInt(prompt("Modus ändern:", cache.ctrl.mode))
+			var inp = parseInt(prompt("Modus ändern:", cache.ctrl.mode));
 			if (!isNaN(inp))
 				sendVar(this.id, inp);
 		}
@@ -128,11 +152,11 @@ function setBg(id, color) {
 	$(id).style.backgroundColor = color;
 }
 
-function sendVar(vname, val) {
-	ws.send(JSON.stringify({'SET': vname.split('.'), 'TO': val}));
+function sendObj(dictObj) {
+    ws.send(JSON.stringify(dictObj));
 }
-function sendCmd(cmd) {
-	ws.send(JSON.stringify({'CMD': cmd}));
+function sendVar(vname, val) {
+	sendObj({'SET': vname.split('.'), 'TO': val});
 }
 
 function connect() {
@@ -143,21 +167,25 @@ function connect() {
 		setTxt("ackState", "Gestartet");
 
 		var synInterval = setInterval (function () {
-			if (ackNr !== synNr) {  // did not receive ACK from server for last client SYN msg
-				setTxt("ackState", "Keine Antwort");
-				resetAll();
-				ws.close();
-				clearInterval(synInterval);  // -> probably disconnected without close() call (e.g. network fail)
+			if (ackNr !== synNr && synTry >= WS_SYN_TRIES) {
+			    // did not receive ACK from server for last client SYN msg and has no more fail retries left
+                setTxt("ackState", "Keine Antwort");
+                resetAll();
+                ws.close();
+                clearInterval(synInterval);  // -> probably disconnected without close() call (e.g. network fail)
+				synTry = 0;
 			} else {
 				synNr++;
+				synTry++;
 				setTxt("ackState", "Warten (" + synNr + ")");
-				ws.send(JSON.stringify({'SYN': synNr}));
+				sendObj({'SYN': synNr}));
 			}
 		}, WS_SYN_INTERVAL*1000);
 
 		synNr = 0;
 		ackNr = -1;
-		ws.send(JSON.stringify({'SYN': 0}));  // first to enable buttons on first ACK
+		synTry = 1;
+		sendObj{{'SYN': 0}));  // first to enable buttons on first ACK
 	}
 
 	function isJSONDict(v) {
@@ -241,6 +269,7 @@ function connect() {
 		else if ('ACK' in dataObj) {  // message to keep connection alive, server acknowledges SYn msg
 			ackNr = dataObj['ACK'];
 			setTxt("ackState", "OK (" + ackNr + ")");
+			synTry = 0;  // reset amount of tries
 
 			if (ackNr === 0) // first message acknowledged by server -> enable the interface
 				disableBtns(false);

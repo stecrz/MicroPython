@@ -2,7 +2,7 @@
   "hostname": "Honda Bike",
   "passwd": "AP-Password",
   "port": 80,
-  "known": [
+  "knets": [
     ["MyHomaNetworkSTA", "itsPassword"],
     ["someOtherKnown", "pw"]
   ]
