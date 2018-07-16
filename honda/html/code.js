@@ -2,16 +2,20 @@ var $ = function(id) { return document.getElementById(id); };
 
 
 var PORT = 80;
-var WS_SYN_INTERVAL = 4;  // send SYN msg every _ s to check if connection is still ok ("server working?")
-var WS_SYN_TRIES = 3;  // try one and the same SYN at most  _ times (e.g. 3 means: at most 2 retries)
-var WS_RECONN_TIMEOUT = 5;  // reconnect after _ s on close
+var WS_MAX_PINGS = 3;  // assume connection failed if _ pings fail in a row
+var WS_PING_INTERVAL = 3500;  // send ping message to server every ... ms (so that server does not close conn)
+var WS_RECONN_TIMEOUT = 5000;  // reconnect after _ ms on close
 
 var ws;
-var synNr, ackNr;  // last SYN number that we sent to the server, last ACK that we received
-var synTry;  // count how many times I tried one and the same synNr
+var cache = null;
 
-var cache = {};
+var pingNr = 0;
+var pingTries = 0;
+var recvdReply = false;
 
+//var scrolling = false;
+//document.ontouchmove = function(e) { scrolling = true; }
+//document.ontouchend = function(e) { scrolling = false; }
 
 setupBtn("ctrl.rly.IG");
 setupBtn("ctrl.rly.BL");
@@ -45,6 +49,7 @@ function setupBtn(id, msg, reset=false) {
 		elem.onclick = function(evt) { sendVar(this.id, this.checked); }
 	} else if (elem.classList.contains("holdbtn")) {
 		elem.onmousedown = elem.ontouchstart = function(evt) {
+		    // TODO cannot check if is moving instead of really clicking, as ontouchmove is fired after ontouchstart
 			if (evt.button != 2 && !elem.classList.contains("disabled") && !elem.classList.contains("pressed")) {
 				this.classList.add("pressed");
 				sendVar(this.id, true);
@@ -66,7 +71,7 @@ function setupBtn(id, msg, reset=false) {
 				//ws.onclose();  // faster reconnect, but no good solution
 			}
 		}
-		elem.ontouchstart = function() { };  // to show :active state
+		elem.ontouchstart = function() { }  // to show :active state
 	}
 }
 function setupBtnNetwork(id, hintId, hintPw=null) {
@@ -114,19 +119,21 @@ function disableBtns(disable) {
 }
 function resetAll() {
 	disableBtns(true);
-	setBg("ctrl.powered", '#777');
+	setBg("ctrl.pwr", '#777');
 	setBg("ecu.engine", '#777');
 	setBg("ecu.ready", '#777');
 
 	// cached variables cleared on screen:
-	for (var obj in cache) {
-		for (var attr in cache[obj]) {
-			var elem = $(obj + '.' + attr);
-			if (elem != null && !elem.classList.contains("circle"))  // skip circle shapes
-				setTxt(obj + '.' + attr, "~");
-		}
-	}
-	cache = {'ctrl': {}, 'ecu': {}};
+	if (cache != null) {
+        for (var obj in cache) {
+            for (var attr in cache[obj]) {
+                var elem = $(obj + '.' + attr);
+                if (elem != null && !elem.classList.contains("circle"))  // skip circle shapes
+                    setTxt(obj + '.' + attr, "~");
+            }
+        }
+    }
+    cache = null;
 }
 
 function setBtnPrssd(elem, pressed) {
@@ -153,6 +160,7 @@ function setBg(id, color) {
 }
 
 function sendObj(dictObj) {
+    console.log(JSON.stringify(dictObj));
     ws.send(JSON.stringify(dictObj));
 }
 function sendVar(vname, val) {
@@ -162,68 +170,66 @@ function sendVar(vname, val) {
 function connect() {
 	//ws = new WebSocket("ws://" + "192.168.178.51" + ":" + PORT);  // TODO remove
 	ws = new WebSocket("ws://" + location.hostname + ":" + PORT);
+	cache = {};
+	pingNr = 0;
+	pingTries = WS_MAX_PINGS; // remaining tries
+	recvdReply = false;  // set to true if current ping was replied
+
+    var keepConn = setInterval( function() {
+        if (recvdReply) {
+            if (pingNr == 0)  // enable buttons on first ping reply
+		        disableBtns(false);
+            pingNr++;
+            pingTries = WS_MAX_PINGS;
+            recvdReply = false;
+        } else if (pingTries <= 0) {
+            console.log("ping-timeout");
+            setTxt("ackState", "Timeout (" + pingNr + ")");
+            clearInterval(keepConn);
+		    disableBtns(true);
+            ws.close();
+            return;
+        }
+        console.log("pinging " + pingNr);
+        pingTries--;
+        setTxt("ackState", "Ping (" + pingNr + ")");
+        sendObj({'PING': pingNr});
+    }, WS_PING_INTERVAL);
 
 	ws.onopen = function() {
-		setTxt("ackState", "Gestartet");
-
-		var synInterval = setInterval (function () {
-			if (ackNr !== synNr && synTry >= WS_SYN_TRIES) {
-			    // did not receive ACK from server for last client SYN msg and has no more fail retries left
-                setTxt("ackState", "Keine Antwort");
-                resetAll();
-                ws.close();
-                clearInterval(synInterval);  // -> probably disconnected without close() call (e.g. network fail)
-				synTry = 0;
-			} else {
-				synNr++;
-				synTry++;
-				setTxt("ackState", "Warten (" + synNr + ")");
-				sendObj({'SYN': synNr});
-			}
-		}, WS_SYN_INTERVAL*1000);
-
-		synNr = 0;
-		ackNr = -1;
-		synTry = 1;
-		sendObj({'SYN': 0});  // first to enable buttons on first ACK
-	}
-
-	function isJSONDict(v) {
-		return v !== null && v.constructor == Object;  // another: Array
-	}
-
-	function deepmerge(src, dest) { // simple deepmerge working for recursive dicts; writing src to dest
-		for (var attr in src) {
-			if (attr in dest && isJSONDict(src[attr]) && isJSONDict(dest[attr])) { // some parts of dict modified
-				deepmerge(src[attr], dest[attr]);
-			} else {  // new key or was not dict before or simply atomic value (list/tuple incl.) change
-				dest[attr] = src[attr];
-			}
-		}
+		setTxt("ackState", "Verbunden");
+		disableBtns(false); // or enable buttons on open event
 	}
 
 	ws.onmessage = function(evt) {
-		var dataObj = JSON.parse(evt.data);
-		//console.log(dataObj);
+		//console.log(evt.data);
+		var jsonData = JSON.parse(evt.data);
 
-		if ('UPDATE' in dataObj) {  // server is sending data
-			var data = dataObj.UPDATE
-
-			deepmerge(data, cache);
+        if ('ACK' in jsonData) {
+            if (jsonData.ACK == pingNr) {
+                recvdReply = true;
+                setTxt("ackState", "OK (" + pingNr + ")");
+            } else {
+                console.log("ping answer, but wrong");
+                setTxt("ackState", "Wrong Reply (" + pingNr + ")");
+            }
+        }
+		else if ('UPD' in jsonData) { // server is sending all data
+			deepmerge(jsonData.UPD, cache);
 
 			// check the differences:
 
-			if ("ctrl" in data) {
-				for (var attr in data.ctrl) {
+			if ("ctrl" in jsonData.UPD) {
+				for (var attr in jsonData.UPD.ctrl) {
 					switch (attr) {
 						case "rly":
-							for (var rlyName in data.ctrl.rly) {
+							for (var rlyName in jsonData.UPD.ctrl.rly) {
 								setBtnPrssd($("ctrl.rly." + rlyName), cache.ctrl.rly[rlyName]);
 							}
 							break;
-						case "powered":
-							setBg("ctrl.powered", cache.ctrl.powered ? '#393' : '#d00');
-							if (!data.ctrl.powered)
+						case "pwr":
+							setBg("ctrl.pwr", cache.ctrl.pwr ? '#393' : '#d00');
+							if (!cache.ctrl.pwr)
 								disableBtn($("ctrl.rly.ST"), false);  // motor won't start anyway so don't care about neutral
 							break;
 						case "sw_pressed":  // TODO
@@ -235,8 +241,8 @@ function connect() {
 				}
 			}
 
-			if ("ecu" in data) {
-				for (var attr in data.ecu) {
+			if ("ecu" in jsonData.UPD) {
+				for (var attr in jsonData.UPD.ecu) {
 					switch (attr) {
 						case "connecting":
 						case "ready":
@@ -264,18 +270,9 @@ function connect() {
 				}
 			}
 
-			// check other local variables
 		}
-		else if ('ACK' in dataObj) {  // message to keep connection alive, server acknowledges SYn msg
-			ackNr = dataObj['ACK'];
-			setTxt("ackState", "OK (" + ackNr + ")");
-			synTry = 0;  // reset amount of tries
-
-			if (ackNr === 0) // first message acknowledged by server -> enable the interface
-				disableBtns(false);
-		}
-		else if ('ALERT' in dataObj) {
-			alert(dataObj['ALERT']);  // TODO: use HTML popup window instead, as JS popup is blocking JS
+		else if ('ALERT' in jsonData) {
+			alert(jsonData['ALERT']);  // TODO: use HTML popup window instead, as JS popup is blocking JS
 		}
 	}
 
@@ -283,6 +280,20 @@ function connect() {
 		resetAll();
 		setTxt("ackState", "Beendet");
 
-		setTimeout(connect, WS_RECONN_TIMEOUT*1000); // reconnect
+		setTimeout(connect, WS_RECONN_TIMEOUT); // auto-reconnect
 	}
+}
+
+function isJSONDict(v) {
+    return v !== null && v.constructor == Object;  // another: Array
+}
+
+function deepmerge(src, dest) { // simple deepmerge working for recursive dicts; writing src to dest
+    for (var attr in src) {
+        if (attr in dest && isJSONDict(src[attr]) && isJSONDict(dest[attr])) { // some parts of dict modified
+            deepmerge(src[attr], dest[attr]);
+        } else {  // new key or was not dict before or simply atomic value (list/tuple incl.) change
+            dest[attr] = src[attr];
+        }
+    }
 }
