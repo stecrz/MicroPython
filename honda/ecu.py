@@ -56,14 +56,16 @@ class HondaECU:
 
             try:
                 await self.query((0xFE,), 0xFF)  # no resp excepted. alt: use 0x72 instead of 0xFF for response rType=0E
-                await d(200)  # default delay might not be enough, just to be safe on startup
+                sleep_ms(200)  # todo yield
+                #await d(200)  # default delay might not be enough, just to be safe on startup
                 await self.diag_query(0x00, 0xF0)  # return packet (02 04 00 FA) is validated, Exception otherwise
                 self.ready = True  # this point is only reached when no error occurs
                 return
             except ECUError:
                 if tdiff(self._wTmr, tmr) > timeout:
                     return
-                await d(400)  # relax
+                #await d(400)  # relax
+                sleep_ms(400)  # todo yield
             finally:
                 self.connecting = False
 
@@ -173,6 +175,11 @@ class CBR500Sniffer(HondaECU):
 
     def __init__(self, uart):  # UART will be reinitialized (baudrate, parity, ...), just object required
         super().__init__(uart)
+        self.reset()
+
+    def reset(self):  # called after init and when the bike is shutdown (so the network does not show old data)
+        self.ready = False
+        self.connecting = False
 
         # rare register data, e.g. regMap[0x11][13] = 14th byte (index 13) in table 0x11 as unsigned integer
         TABLES = ((0x11, 20), (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21), (0xD1, 6))  # tables + length (len>0!!!)
@@ -234,19 +241,19 @@ class CBR500Sniffer(HondaECU):
                 self.rpm = (self.regMap[tab][0] << 8) + self.regMap[tab][1]
                 self._calc_gear()
             elif reg == 2:
-                self.tp_v = val * 5 / 256
+                self.tp_v = round(val * 5 / 256, 1)
             elif reg == 3:
                 self.tp = int(val * 100 / 158)  # val / 16
             elif reg == 4:
-                self.ect_v = val * 5 / 256
+                self.ect_v = round(val * 5 / 256, 1)
             elif reg == 5:
                 self.ect = val - 40
             elif reg == 6:
-                self.iat_v = val * 5 / 256
+                self.iat_v = round(val * 5 / 256, 1)
             elif reg == 7:
                 self.iat = val - 40
             elif reg == 8:
-                self.map_v = val * 5 / 256
+                self.map_v = round(val * 5 / 256, 1)
             elif reg == 9:
                 self.map = val
             elif reg == 12:

@@ -1,33 +1,42 @@
 # NOTE: NEXT TIME USE STANDARD IMPORTS INSTEAD OF FROM-IMPORTS. FROM HAS NO ADVANTAGE
 
 # Required modules:
-# User: ecu, ctrl, net, pwr
-# Drivers (semi-user): webserver, mcp23017 (don't use general mcp because of code length)
-# Drivers: uasyncio
-# Other files: html folder
+# a) Self-defined:
+#    - ecu
+#    - ctrl
+#    - net
+#    - pwr
+# b) Drivers (modified from others):
+#    - webserver (see Micropython/websocketserver/webserver on this PC)
+#    - mcp23017 (a smaller version of Tony DiCola's general MCP driver)
+# c) Drivers:
+#    - uasyncio (core library)
+# d) Other files (not frozen into flash):
+#    - html (complete folder)
+#    - netconf.json
 
-#from net import NetServer #todo
+from net import NetServer
 from ecu import CBR500Sniffer, ECUError
 from ctrl import IOControl, blink
-from pwr import deepsleep
 from uasyncio import get_event_loop, sleep_ms as d  # for shorting delays: "await uasyncio.sleep_ms(1)" -> "await d(1)"
-from machine import UART
 from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms as sleep_ms
 from math import log
+from pwr import deepsleep
+import machine
 
 
 _SHIFT_LIGHT_RPM_THRESH = 6000  # rpm
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
-_SW_BL_FLASH_COUNT = 8  # flash break light _ times when pressed
-_SW_PWRUP_TIMEOUT = 8000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise special function
-_NET_ACTIVE_TIME_MIN = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
+_SW_BL_FLASH_COUNT = 7  # flash break light _ times when pressed
+_SW_PWRUP_TIMEOUT = 8000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
+_NET_DEFAULT_ACTIVE_TIME = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
 
 
-_UART0 = UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
+UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
 loop = get_event_loop()
-ecu = CBR500Sniffer(_UART0)
 ctrl = IOControl()
-#net = NetServer()  # start by running network handler, stop by calling net.stop() todo
+ecu = CBR500Sniffer(UART0)
+net = NetServer()
 
 
 def reset_loop():  # resets the asyncio eventloop by removing all coros from run and wait queue
@@ -60,14 +69,21 @@ async def task_ecu():
                     await ecu.init()
                     if not ecu.ready:  # timeout
                         await d(5000)
+                        continue
                 await ecu.update(tab)
                 ctrl.led_y(0)  # todo
                 err_counter = 0  # update was successful
-            except ECUError:
+            except ECUError as ex:
                 err_counter += 1
-                if err_counter >= 10:
+                if err_counter >= 5:
                     ctrl.seg_char('E')
-                    sleep_ms(5000)
+                    ctrl.beep(5000)
+                    try:
+                        await ctrl.seg_show_num(int(str(ex)))
+                        sleep_ms(2000)
+                    except ValueError:
+                        pass
+                    ctrl.seg_clear()
                     break
             except Exception as ex:
                 ctrl.seg_char('F')  # TODO
@@ -84,7 +100,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
 
     while True:
         # check switch (BLF and special modes):
-        if ctrl.sw_pressed != ctrl.sw_pressed():  # just pressed or released (state is updated)
+        if ctrl.sw_pressed != ctrl.switch_pressed():  # just pressed or released (state is updated after methodcal)
             if ctrl.sw_pressed:  # just pressed:
                 sw_tmr = tms()  # set timer to check duration later
                 if ctrl.mode != 0:  # switch pressed while in special mode
@@ -96,16 +112,21 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     ctrl.led_g(0)
                 elif ctrl.mode == 0:
                     for _ in range(_SW_BL_FLASH_COUNT):
-                        ctrl.set_rly('BL', 1)
+                        ctrl.set_rly('BL', True)
                         sleep_ms(90)
-                        ctrl.set_rly('BL', 0)
+                        ctrl.set_rly('BL', False)
                         sleep_ms(70)
                 elif ctrl.mode == 1:
                     lap_tmr = tms()  # this val is only used if this mode is set when driving and then reaching >100
-                elif ctrl.mode == 7:  # activate network (reactivate if already active, handler will do the job)
-                    loop.create_task(task_net())
+                elif ctrl.mode == 7:  # activate network if not active (no min active time -> until pwrdown)
+                    if not net.active:
+                        start_net(0)
+                    else:  # already running; just change stayon time to "until poweroff"
+                        net.stay_on_for = 0
+                    ctrl.mode = 0  # instant reset
                 elif ctrl.mode == 8:  # disable the network iface
                     net.stop()
+                    ctrl.mode = 0  # instant reset
 
                 ctrl.seg_clear()
         elif ctrl.sw_pressed and ctrl.mode >= 0:  # held down -> check duration
@@ -166,66 +187,76 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
 
 
 async def task_net():  # runs until network is not active any more for some reason (if you stop)
-    return #todo
-    if net.active:  # another task_net is already running. stop it by calling
-        net.stop()  # which will cause their loops (see beyond) to exit
-        await d(1000)  # just make sure the another handlers are called meanwhile (delay >= all other delays below)
-
-    net.start()
     while net.active:  # will not change from inside this loop, but you can set it by calling net.stop() outside
         if net.client_count() == 0:
-            await d(500)  # long delay, more time for ECU
+            await d(200)  # long delay, more time for ECU
         else:
             net.process()  # performs all updates server <-> clients (including relays sets, ...)
             await d(0)  # short delay
 
 
-async def await_pwr(val, limit=12*60):
-    # checks the bike power every once in a while and return only if powered state is <val>.
-    # limit is used to specify a time limit in minutes, so the chip will go to deepsleep after this time.
-    # by default, the bike waits for poweroff or poweron for at most 12 hours (no longer drives expected)
-    limit *= 60000  # minutes to ms
-    tmr = tms()
-    while ctrl.powered() != val:
-        if tdiff(tms(), tmr) > limit:
-            ctrl.reset()
-            deepsleep()
+async def await_pwroff():
+    while ctrl.powered():
         await d(1000)  # should be <= SW_HOLD_THRESH
 
 
-def main():
-    # todo: GPS/GSM test, maybe SMS
-
-    tmr = tms()
-    while ctrl.sw_pressed():  # wait for switch to be released. NC = remains on until timeout
-        if tdiff(tms(), tmr) > _SW_PWRUP_TIMEOUT:  # break light flash switch NC or hold down long for special fun
-            loop.create_task(task_net())  # special fun = network active while bike powered
-            break
-    else:  # not pressed long enough
-        if not ctrl.powered():  # bike not powered on startup; was hard reset or motion wakeup
+async def await_pwron():
+    while not ctrl.powered():
+        if not net.stay_on():
             deepsleep()
-    del tmr
+        await d(1000)
+
+
+def start_net(dur=_NET_DEFAULT_ACTIVE_TIME):
+    ctrl.led_y(1)
+    net.start(dur)  # at least this time (sec) (more if bike powerdown is later)
+    loop.create_task(task_net())
+    ctrl.led_y(0)
+
+
+def main():
+    if machine.reset_cause() == machine.HARD_RESET:
+        ctrl.off()
+    elif machine.reset_cause() == machine.SOFT_RESET:  # this must be a webapp reset, so start it again
+        start_net()
+    else:
+        tmr = tms()
+        while ctrl.switch_pressed():  # wait for switch to be released. NC = remains on until timeout
+            if tdiff(tms(), tmr) > _SW_PWRUP_TIMEOUT:  # break light flash switch NC or hold down long for special fun
+                start_net()
+                break
+        else:  # not pressed long enough
+            if not ctrl.powered():  # bike not powered on startup; was hard reset or motion wakeup
+                deepsleep()
 
     while True:
         if ctrl.powered():  # bike (and maybe network) running
             loop.create_task(task_ecu())
             loop.create_task(task_ctrl())
-            loop.run_until_complete(await_pwr(False))  # wait for poweroff
+            loop.run_until_complete(await_pwroff())  # wait for poweroff (bike shutdown)
 
             # -> bike powered off
+
+            # only required if net started afterwards, so no wrong data is displayed:
+            reset_loop()  # clear ecu and ctrl task as these are not required now
             ctrl.reset()
-            if ctrl.sw_pressed():  # switch held down during shutdown
-                # -> keep network interface (relay control) active for at least <net_time> ms, then deepsleep
-                reset_loop()  # clear ecu and ctrl task as these are not required now
-                loop.create_task(task_net())  # and start network task (already running?, will do a restart, but ok...)
-                # see beyond
+            ecu.reset()
+
+            if ctrl.switch_pressed():  # switch held down during shutdown
+                start_net(ctrl.mode * 60 if ctrl.mode > 0 else _NET_DEFAULT_ACTIVE_TIME)  # will only set tmr if alr active
             elif ctrl.mode == 10:
+                ctrl.off()
                 return  # to console
             else:
-                deepsleep()
+                if not net.stay_on():
+                    ctrl.off()
+                    net.stop()  # stop running network (explicitly kick clients), we want to deepsleep
+                    deepsleep()
+                else:  # stay_on time not over -> reschedule task
+                    loop.create_task(task_net())
 
-        # -> only network running
-        loop.run_until_complete(await_pwr(True, ctrl.mode * 60 if ctrl.mode > 0 else _NET_ACTIVE_TIME_MIN))
+        # -> only network running, should stay on (and check for powerup meanwhile)
+        loop.run_until_complete(await_pwron())
         # waits for power on, then continue outer loop; goes to deepsleep if timeout exceeded
 
 
@@ -239,7 +270,7 @@ if __name__ == '__main__':
     except Exception as e:
         exc = e  # save exception that happend in my program using UART0
 
-    _UART0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
+    UART0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
 
     if exc is not None:
         raise exc  # show the exception on REPL

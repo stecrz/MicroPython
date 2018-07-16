@@ -2,6 +2,7 @@
 from mcp23017 import MCP23017
 from machine import Pin, I2C
 from uasyncio import sleep_ms as d
+import utime
 
 
 async def blink(outfun, d1=150, d2=0):  # coro to indicate activity
@@ -50,13 +51,21 @@ class IOControl:
         #     self._mcp1.decl_output(pin)
         # self._mcp1.decl_output(OutputController._LED_Y)
         # self._mcp1.decl_output(OutputController._LED_G)
-        self.reset()
+
+        self._mcp2 = MCP23017(i2c, _ADDR_MCP2, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
+        for pin in range(4):  # reset relay outputs (off)
+            self._mcp2.decl_output(pin)
+            self._mcp2.output(pin, 0)
+        self._mcp2.decl_input(_IN_SWITCH_BLF)  # switch input
+        self._mcp2.pullup(_IN_SWITCH_BLF, True)  # additional pullup (also there is the 82k pullup)
+        self._mcp2.decl_input(_IN_PWR)  # powered status input
+
         self._dot = 0  # dot currently lighted?
         self._circle = 1  # lighting pattern of circle if used (1, 2, 4, 8, 16, 32, 1, 2, ...)
 
         # last read states:
-        self.powered = False
-        self.sw_pressed = False  # last switch state (from recent check): down?
+        self.pwr = None
+        self.sw_pressed = None  # last switch state (from recent check): down?
 
         # 0 = normal, 1/2/3/... = special modes (after holding switch down), (-x = reset from special mode)
         # special modes: 1 = 0-100 km/h measurement
@@ -65,19 +74,18 @@ class IOControl:
         self.mode = 0
         self.rly = {k: False for k in _RLY}  # current relais states (last set)
 
-        self._mcp2 = MCP23017(i2c, _ADDR_MCP1, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
-        for pin in range(4):  # reset relay outputs (off)
-            self._mcp2.decl_output(pin)
-            self._mcp2.output(pin, 0)
-        self._mcp2.decl_input(_IN_SWITCH_BLF)  # switch input
-        #self._mcp2.pullup(IOControl._IN_SWITCH_BLF, True)  # additional pullup (also there is the 82k pullup)
-        self._mcp2.decl_input(_IN_PWR)  # powered status input
+        self.reset()
+        self.off()
 
-    def reset(self):  # turns off all outputs
+    def reset(self):
+        self.pwr = False
+        self.sw_pressed = False
+
+    def off(self):  # turns off all outputs
         self.seg_clear()
         self.led_y(0)
         self.led_g(0)
-
+        self._mcp1.output(_BUZZER, 0)
         for rly in range(4):
             self._mcp2.output(rly, 0)
 
@@ -165,10 +173,19 @@ class IOControl:
             self.rly[name] = val
             self._mcp2.output(_RLY[name], val)
 
-    def sw_pressed(self):  # returns True if the switch is pressed and False if it is not
+    def switch_pressed(self):  # returns True if the switch is pressed and False if it is not
         self.sw_pressed = self._mcp2.input(_IN_SWITCH_BLF)
         return self.sw_pressed
 
     def powered(self):  # returns True if the bike is powered on (service output), False if not
-        self.powered = self._mcp2.input(_IN_PWR)
-        return self.powered
+        self.pwr = self._mcp2.input(_IN_PWR)
+        return self.pwr
+
+    def beep(self, duration, freq_pause=380):  # duration in ms, freq_pause in us
+        duration *= 1000  # ms to us
+        tmr = utime.ticks_us()
+        while utime.ticks_diff(utime.ticks_us(), tmr) < duration:
+            self._mcp1.output(_BUZZER, 0)
+            utime.sleep_us(freq_pause)
+            self._mcp1.output(_BUZZER, 1)
+            utime.sleep_us(freq_pause)

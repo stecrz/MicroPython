@@ -35,7 +35,7 @@ class FakeECU(ECUBase):
         self._tmr = tms()
 
     def update(self):
-        if tdiff(tms(), self._tmr) > 2500:
+        if tdiff(tms(), self._tmr) > 100:
             self._tmr = tms()
 
             import urandom
@@ -50,13 +50,13 @@ class FakeECU(ECUBase):
             self.ready = bool(urandom.getrandbits(1))
             self.connecting = bool(urandom.getrandbits(1))
 
-            ctrl.powered = bool(urandom.getrandbits(1))
+            ctrl.pwr = bool(urandom.getrandbits(1))
 
 
 RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3}
 class FakeControl:
     def __init__(self):
-        self.powered = True
+        self.pwr = True
         self.sw_pressed = False
         self.mode = 0
         self.rly = {k: False for k in RLY}
@@ -66,18 +66,23 @@ class FakeControl:
         if not isinstance(val, bool) or name not in self.rly:
             return
         if val != self.rly[name]:
+            print("RLY " + name + " TO " + str(val))
             self.rly[name] = val
 
-import gc
-gc.collect()
+
 ecu = FakeECU()
-gc.collect()
 ctrl = FakeControl()
 net = NetServer()
 
+num_clients = 0
+
 net.start()
+print("NetServer started")
 try:
     while True:
+        if net.client_count() != num_clients:
+            num_clients = net.client_count()
+            print("client count changed to " + str(num_clients))
         net.process()  # update all clients and handle requests
         # some other stuff:
         ecu.update()

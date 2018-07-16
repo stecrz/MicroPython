@@ -8,8 +8,8 @@ import network
 
 _CONFIG_FILE = "netconf.json"  # this file must contain, hosname, password, known networks, port (...)
 _OBJS = ('ecu', 'ctrl')  # all non-private vars in these objects will be monitored and sent to clients on update
-_WS_INACT_TO = 20  # client is closed when no message (incl SYN!) received for _ s (>= WS_SYN_INTERVAL)
-                       # don't use too small value, as cient will not send SYN message if JS alert is displayed
+_WS_INACT_TO = 14  # client is closed when no message (incl PING!) received for _ s (>= WS_SYN_INTERVAL)
+                   # don't use too small value, as cient will not send PING message if JS alert is displayed
 _AP_CONF = ('192.168.0.1', '255.255.255.0', '192.168.0.1', '')  # ip, subnet, gateway, dns
 _HTML_INDEX = "/html/index.html"  # None = unsued
 _HTML_404 = "/404.html"  # None = unused
@@ -44,16 +44,19 @@ def _deepcopy(v):  # recursive, but only for lists/tuples/dicts (and atomic valu
         raise NotImplementedError  # obj not supported, use official copy.deepcopy in micropython-lib
 
 
-def _json_prep_dict(v):
+def _json_prep(v):  # prepare json value so that dumps understands it and it can be loaded by the webclient
     # Modifies the given dict <v> (any value) by changing all dict-keys recursivly to strings.
     # This is required for 8.7.2018 as the ujson module does not work properly, because it
     # converts dicts like {1: 2} to '{1: 2}' instead of '{"1": 2}' (keys need to be strings!).
+    # Also replaces python bytearray/bytes values by tuples (converted to list by dumps)
     # Returns the modified dict (v remains unchanged).
 
     if isinstance(v, (tuple, list)):
-        return (_json_prep_dict(x) for x in v)  # list and tuples same in JSON
+        return (_json_prep(x) for x in v)  # list and tuples same in JSON
+    elif isinstance(v, (bytearray, bytes)):
+        return tuple(v)
     elif isinstance(v, dict):
-        return {str(k): _json_prep_dict(v) for k, v in v.items()}
+        return {str(k): _json_prep(v) for k, v in v.items()}
     else:  # note: objects with dicts as attr or anything will not be recognized!
         return v
 
@@ -71,26 +74,32 @@ class _NetClient(WebSocketClient):
         self.conn_tmr = tms()  # for checking if client is connected
 
     def routine(self):  # main routine, executed all the time the client is active
+        if tdiff(tms(), self.conn_tmr) > _WS_INACT_TO*1000:
+            self.close()
+            # print("closed client")
+            return
+
         msg = self.read()
         if msg:  # client is asking for sth (not empty or None)
-            self.execute(msg)
-            self.conn_tmr = tms()  # reset timer
+            msg = msg.decode('utf-8')
+            try:
+                for m in json.loads('[' + msg.replace("}{", "},{") + ']'):  # can be multiple, therefore this shit...
+                    # print(repr(m))
+                    self.execute(m)
+            except ValueError:  # invalid JSON
+                pass
 
         self._update()  # update data locally and submit changes to the client
 
-        if tdiff(tms(), self.conn_tmr) > _WS_INACT_TO*1000:
-            self.close()
-
     def send(self, **msg):
-        self.write(json.dumps(_json_prep_dict(msg)))
+        self.write(json.dumps(_json_prep(msg)))
 
-    def execute(self, msg):  # msg received from websocket
+    def execute(self, msg):  # execute a msg object (must be dict unpacket from json)
         try:
-            msg = json.loads(msg)  # can be multiple TODO: split by }{
-            print(msg)
-
-            if 'SYN' in msg:
-                self.send(ACK=msg['SYN'])
+            if 'PING' in msg:
+                self.send(ACK=msg['PING'])
+                # print("acknowledged PING " + str(msg["PING"]))
+                self.conn_tmr = tms()  # reset timer
             elif 'SET' in msg and 'TO' in msg:  # client wants to set local variable
                 self._set_var(msg['SET'], msg['TO'])
             elif 'CMD' in msg:  # ESP command without args
@@ -100,38 +109,44 @@ class _NetClient(WebSocketClient):
                 elif cmd == "deepsleep":
                     deepsleep()
                 elif cmd == "console":
-                    raise Exception("return by net")
+                    raise Exception("ret by net")
                 elif cmd == "ifconfig":  # returns AP and STA IP and Port; 0.0.0.0 if not connected
-                    self.send(ALERT="AP:\n{}\n\nStation:\n{}\n\nPort: {}".
-                                    format(str(network.WLAN(network.AP_IF).ifconfig()),
-                                    str(network.WLAN(network.STA_IF).ifconfig()), str(read_cfg("port"))))
-                # elif cmd == "netls":
-                #     self.send(ALERT='\n'.join(["ID: %s - PW: %s" % (kid, kpw) for (kid, kpw) in read_cfg("knets")]))
-                # elif cmd == "netadd":
-                #     cfg = read_cfg()
-                #     knets = cfg["knets"]
-                #     for i in range(len(knets)):
-                #         if knets[i][0] == msg['ID']:
-                #             knets[i][1] = msg['PW']
-                #             break
-                #     else:  # not found
-                #         cfg["knets"].append((msg['ID'], msg['PW']))
-                #     write_cfg(cfg)
-                # elif cmd == "netrm":
-                #     cfg = read_cfg()
-                #     knets = cfg["knets"]
-                #     for i in range(len(knets)):
-                #         if knets[i][0] == msg['ID']:
-                #             knets.pop(i)
-                #             break
-                #     else:
-                #         return  # not found -> nothing to do
-                #     write_cfg(cfg)
-            elif 'GET' in msg:  # client wants to get local variable(s)
-                if not msg['GET']:  # empty string or None -> enquiring all cached data
-                    self.send(UPDATE=self.data)
-                else:
-                    self._get_var(msg['GET'])
+                    aw = ""
+                    ap = network.WLAN(network.AP_IF)
+                    if ap.active():
+                        aw += "AP:\n{}\n\n".format(ap.ifconfig())
+                    sta = network.WLAN(network.STA_IF)
+                    if sta.active():
+                        aw += "Station:\n{}\n\n".format(sta.ifconfig())
+                    aw += "Port: " + str(read_cfg("port"))
+                    self.send(ALERT=aw)
+                elif cmd == "netls":
+                    self.send(ALERT='\n\n'.join(["ID: %s\nPW: %s" % (kid, kpw) for (kid, kpw) in read_cfg("knets")]))
+                elif cmd == "netadd":
+                    cfg = read_cfg()
+                    knets = cfg["knets"]
+                    for i in range(len(knets)):
+                        if knets[i][0] == msg['ID']:
+                            knets[i][1] = msg['PW']
+                            break
+                    else:  # not found
+                        cfg["knets"].append((msg['ID'], msg['PW']))
+                    write_cfg(cfg)
+                elif cmd == "netrm":
+                    cfg = read_cfg()
+                    knets = cfg["knets"]
+                    for i in range(len(knets)):
+                        if knets[i][0] == msg['ID']:
+                            knets.pop(i)
+                            break
+                    else:
+                        return  # not found -> nothing to do
+                    write_cfg(cfg)
+            # elif 'GET' in msg:  # client wants to get local variable(s)
+            #     if not msg['GET']:  # empty string or None -> enquiring all cached data
+            #         self.send(UPDATE=self.data)
+            #     else:
+            #         self._get_var(msg['GET'])
         except ValueError:  # not in JSON format
             pass
 
@@ -155,54 +170,52 @@ class _NetClient(WebSocketClient):
 
         mods = {}
         for obj_name in self.obj:
-            dat_cache = self.data[obj_name]
-            dat_real = self.obj[obj_name].__dict__
-            obj_mods = _find_changed_vals(dat_cache, dat_real)
+            obj_mods = _find_changed_vals(self.data[obj_name], self.obj[obj_name].__dict__)
             if obj_mods:  # at least one public var modified in this object
                 mods[obj_name] = obj_mods
 
-        if mods:  # - " - at all (all public)#
-            self.send(UPDATE=mods)
+        if mods:  # - " - at all (all public)
+            self.send(UPD=mods)
 
-    def _get_var(self, varls):  # execute GET command: find local variable and return it (no cache lookup)
-        # <varls> can be a single variable or a list of variables/keys to support objects, dicts, list and tuples,
-        # e.g. ['objA', 'objB', 'keyC', 'attrD', indexE] for objA.objB[keyC].attrD[indexE]
-        # the variable found is cached (or updated in cache if was before)
-        if isinstance(varls, str):
-            varls = (varls,)
-        elif not isinstance(varls, (list, tuple)):
-            return
-
-        val = locals()
-        for var in varls:
-            if isinstance(val, dict):  # dict[var_anything]
-                if var not in val or isinstance(var, str) and len(var) != 0 and var[0] == '_':
-                    return  # key err or private member
-                val = val[var]
-            elif isinstance(val, (list, tuple)):  # list/tuple[var_int]
-                if not isinstance(var, int):
-                    return
-                val = val[var]
-            else:  # data.var_str
-                if not isinstance(var, str) or len(var) == 0 or var[0] == '_' or not hasattr(val, var):
-                    return  # attribute err. non-private attribute must be given a non-empty string and has to exist
-                val = getattr(val, var)
-
-        # variable needs to be returned in a dict; additionally set the variable in cached data
-        cache = self.data
-        retmsg = {}
-        msg = retmsg
-        for var in varls[:-1]:
-            if var not in cache:
-                cache[var] = {}
-            cache = cache[var]
-            msg[var] = {}
-            msg = msg[var]
-        cache[varls[-1]] = val
-        msg[varls[-1]] = val
-
-        if retmsg:
-            self.send(UPDATE=retmsg)  # send the value found as dict to be handled like an update
+    # def _get_var(self, varls):  # execute GET command: find local variable and return it (no cache lookup)
+    #     # <varls> can be a single variable or a list of variables/keys to support objects, dicts, list and tuples,
+    #     # e.g. ['objA', 'objB', 'keyC', 'attrD', indexE] for objA.objB[keyC].attrD[indexE]
+    #     # the variable found is cached (or updated in cache if was before)
+    #     if isinstance(varls, str):
+    #         varls = (varls,)
+    #     elif not isinstance(varls, (list, tuple)):
+    #         return
+    #
+    #     val = locals()
+    #     for var in varls:
+    #         if isinstance(val, dict):  # dict[var_anything]
+    #             if var not in val or isinstance(var, str) and len(var) != 0 and var[0] == '_':
+    #                 return  # key err or private member
+    #             val = val[var]
+    #         elif isinstance(val, (list, tuple)):  # list/tuple[var_int]
+    #             if not isinstance(var, int):
+    #                 return
+    #             val = val[var]
+    #         else:  # data.var_str
+    #             if not isinstance(var, str) or len(var) == 0 or var[0] == '_' or not hasattr(val, var):
+    #                 return  # attribute err. non-private attribute must be given a non-empty string and has to exist
+    #             val = getattr(val, var)
+    #
+    #     # variable needs to be returned in a dict; additionally set the variable in cached data
+    #     cache = self.data
+    #     retmsg = {}
+    #     msg = retmsg
+    #     for var in varls[:-1]:
+    #         if var not in cache:
+    #             cache[var] = {}
+    #         cache = cache[var]
+    #         msg[var] = {}
+    #         msg = msg[var]
+    #     cache[varls[-1]] = val
+    #     msg[varls[-1]] = val
+    #
+    #     if retmsg:
+    #         self.send(UPD=retmsg)  # send the value found as dict to be handled like an update
 
     def _set_var(self, varls, val):  # e.g. set(('io', 'rly', 'BL'), True), possible only if setter fun defined
         if isinstance(varls, str):
@@ -230,6 +243,9 @@ class _NetClient(WebSocketClient):
             elif varls[1] == 'mode':  # no local update here to make sure user sees whether change was successful
                 if isinstance(val, int):
                     self.obj[varls[0]].mode = val
+                    # to apply the mode as if the switch was released, we need to set switch state to pressed
+                    # -> main code will find out that switch is not pressed any more and assume we have released it
+                    self.obj[varls[0]].sw_pressed = True
 
 
 class NetServer(WebSocketServer):
@@ -244,8 +260,18 @@ class NetServer(WebSocketServer):
             self._knets = tuple(tuple(idpw) for idpw in cfg["knets"])
 
         self.active = False
+        # stop network interfaces on start:
+        self._set_ap()
+        self._set_sta()
 
-    def start(self):
+        self.stay_on_for = 0  # chip is expected to remain on even if bike powered off for this time
+        self._stay_on_tmr = tms()  # in respect to this timer (set on network start)
+
+    def start(self, stay_on=0):
+        # with stay_on you can optionally specify a time (minutes), how long the network
+        # is expected to stay on after start even if bike is powered off (0 = shutdown network on poweroff)
+        self._stay_on_tmr = tms()
+        self.stay_on_for = stay_on * 60000  # minutes to ms
         if not self.active:
             self.active = True
             self._set_ap()
@@ -253,11 +279,15 @@ class NetServer(WebSocketServer):
             super().start(self._port)
 
     def stop(self):
+        self.stay_on_for = 0
         if self.active:
             self.active = False
             self._set_ap()
             self._set_sta()
             super().stop()
+
+    def stay_on(self):  # returns True, if the chip is expected not to shutdown because of stay_on time
+        return tdiff(tms(), self._stay_on_tmr) < self.stay_on_for
 
     def client_count(self):
         return len(self.clients)
@@ -266,7 +296,7 @@ class NetServer(WebSocketServer):
         sta = network.WLAN(network.STA_IF)
         sta.active(self.active)
 
-        if self.active:
+        if self.active and self._knets:  # wants to activate and at least one known network
             sta.config(dhcp_hostname=self._name)
 
             if not sta.isconnected():  # not conn already
