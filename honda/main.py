@@ -171,7 +171,7 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                 else:  # measurement
                     ctrl.led_g(0)
 
-            if not ecu.engine or ecu.rpm <= 0:  # engine not running (parking) or engine just starting up
+            if not ecu.engine or ecu.rpm <= 0:  # engine not running (probably parking) or engine just starting up
                 ctrl.seg_char('-')
             elif ecu.idle or ecu.gear is None:
                 if ecu.sidestand or ecu.speed < _REV_CIRCLE_SPEED_THRESH and ecu.tp > 0:  # revving
