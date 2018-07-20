@@ -61,6 +61,7 @@ class IOControl:
         self._mcp2.decl_input(_IN_PWR)  # powered status input
 
         self._dot = 0  # dot currently lighted?
+        self._pattern = 0  # currently displayed segment pattern (without dot)
         self._circle = 1  # lighting pattern of circle if used (1, 2, 4, 8, 16, 32, 1, 2, ...)
 
         # last read states:
@@ -74,17 +75,17 @@ class IOControl:
         self.mode = 0
         self.rly = {k: False for k in _RLY}  # current relais states (last set)
 
-        self.reset()
         self.off()
 
-    def reset(self):
+    def clear(self):
         self.pwr = False
         self.sw_pressed = False
-
-    def off(self):  # turns off all outputs
         self.seg_clear()
         self.led_y(0)
         self.led_g(0)
+
+    def off(self):  # turns off all outputs
+        self.clear()
         self._mcp1.output(_BUZZER, 0)
         for rly in range(4):
             self._mcp2.output(rly, 0)
@@ -135,6 +136,7 @@ class IOControl:
     def seg_pattern(self, bits):
         # Shows the binary pattern <bits> on the 7 segment display where 1 means on.
         # E.g. 0b0000101 lights up pin C and A. For dot please use seg_dot().
+        self._pattern = bits
         pins = {}  # maps pins (0-7) to a val, where True means OFF (double positive) and False means ON
         for i in range(7):
             pins[i] = not (bits & 1)  # get i-th bit and invert it so that finally True means ON again (for the user)
@@ -158,6 +160,13 @@ class IOControl:
             self.seg_pattern(self._circle ^ 0x3F)
         else:
             self.seg_pattern(self._circle)
+
+    async def seg_flash(self, pause):
+        pttrn = self._pattern  # currently displayed num/char
+        self.seg_clear()
+        await d(pause)
+        self.seg_pattern(pttrn)
+        await d(pause)
 
     def led_g(self, val):  # turns green LED on/off; 1 = on, 0 = off
         self._mcp1.output(_LED_G, not val)

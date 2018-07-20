@@ -25,14 +25,14 @@ from pwr import deepsleep
 import machine
 
 
-_SHIFT_LIGHT_RPM_THRESH = 6000  # rpm
+_SHIFT_LIGHT_RPM_THRESH = 8000  # rpm
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
 _SW_BL_FLASH_COUNT = 7  # flash break light _ times when pressed
-_SW_PWRUP_TIMEOUT = 8000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
+_SW_PWRUP_TIMEOUT = 7000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
 _NET_DEFAULT_ACTIVE_TIME = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
+_REV_CIRCLE_SPEED_THRESH = 7  # assume revving (-> display circle on 7-seg) if throttle is used and speed <= _ km/h
 
-
-UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate is for REPL
+UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate doesn't matter
 loop = get_event_loop()
 ctrl = IOControl()
 ecu = CBR500Sniffer(UART0)
@@ -53,6 +53,9 @@ def reset_loop():  # resets the asyncio eventloop by removing all coros from run
 
 
 async def task_ecu():
+    # while True:
+    #     await blink(ctrl.seg_dot, 100, 400)
+
     err_counter = 0  # errors in a row
 
     async def task_blink():
@@ -61,10 +64,14 @@ async def task_ecu():
 
     while True:
         for tab in ecu.regMap:
+            if ctrl.mode == 1:  # alert mode, don't scan ECU
+                await d(2000)
+                continue
+
             try:
                 if not ecu.ready:
                     ctrl.led_y(1)  # todo y LED indicates ECU not connected
-                    ecu.connecting = True  # not required, but otherwise task_blink will exit its blinking loop
+                    ecu.connecting = True  # not required, but otherwise task_blink will exit its blinking loop  # todo test wihout this line
                     loop.create_task(task_blink())
                     await ecu.init()
                     if not ecu.ready:  # timeout
@@ -78,23 +85,19 @@ async def task_ecu():
                 if err_counter >= 5:
                     ctrl.seg_char('E')
                     ctrl.beep(5000)
-                    try:
-                        await ctrl.seg_show_num(int(str(ex)))
-                        sleep_ms(2000)
-                    except ValueError:
-                        pass
                     ctrl.seg_clear()
                     break
-            except Exception as ex:
+            except Exception as ex:  # should not happen
                 ctrl.seg_char('F')  # TODO
                 raise ex
 
-            await d(100)  # not too many updates per second  TODO too slow?
+            await d(100)  # TODO not too many updates per second  TODO too slow?
 
-        await d(0)  # todo req?
+        await d(0)  # todo
 
 
 async def task_ctrl():  # mode based on switch (e.g. break light flash)
+    ctrl.sw_pressed = False
     sw_tmr = tms()  # timer to check duration of switch down
     lap_tmr = tms()  # timer for special mode 0-100 km/h measurement (reset at 0 km/h)
 
@@ -108,6 +111,8 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     ctrl.led_g(1)
             else:  # just released -> apply mode now
                 if ctrl.mode < 0:
+                    if ctrl.mode == -1:  # was mode 1 before
+                        ctrl.set_rly('BL', False)
                     ctrl.mode = 0  # reset to mode 0 without break light flashing
                     ctrl.led_g(0)
                 elif ctrl.mode == 0:
@@ -116,13 +121,10 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                         sleep_ms(90)
                         ctrl.set_rly('BL', False)
                         sleep_ms(70)
-                elif ctrl.mode == 1:
+                elif ctrl.mode == 2:
                     lap_tmr = tms()  # this val is only used if this mode is set when driving and then reaching >100
                 elif ctrl.mode == 7:  # activate network if not active (no min active time -> until pwrdown)
-                    if not net.active:
-                        start_net(0)
-                    else:  # already running; just change stayon time to "until poweroff"
-                        net.stay_on_for = 0
+                    start_net(0)  # already running? just change stayon time to "until poweroff"
                     ctrl.mode = 0  # instant reset
                 elif ctrl.mode == 8:  # disable the network iface
                     net.stop()
@@ -134,16 +136,21 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                 ctrl.mode += 1
                 ctrl.seg_digit(ctrl.mode % 10)
                 ctrl.led_g(1)
-                sleep_ms(150)  # TODO: yield if other handlers dont set 7seg
+                await d(150)
                 ctrl.led_g(0)
                 sw_tmr = tms()  # for next special mode
             if ctrl.mode != 0:
                 await d(0)  # let ECU work
                 continue  # skip io.part, cause increasing special mode is non-interruptable on 7-seg
 
-        # handle cockpit stuff:
+        # mode-dependent, but ecu independet stuff:
+        if ctrl.mode == 1:  # warn mode
+            ctrl.set_rly('BL', not ctrl.rly['BL'])
+            await d(180)
+
+        # handle cockpit stuff depending on ecu:
         if ecu.ready:  # ECU connected
-            if ctrl.mode == 1:  # set timer and green LED based on speed
+            if ctrl.mode == 2:  # set timer and green LED based on speed
                 if ecu.speed == 0:
                     lap_tmr = tms()
                     ctrl.led_g(1)
@@ -153,11 +160,11 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     lt_s = lap_time // 1000  # seconds (front part) e.g. 15
                     lt_h = round((lap_time - lt_s * 1000) / 100)  # hundreth e.g. 8
                     ctrl.seg_clear()
-                    sleep_ms(1000)  # TODO: yield if other handlers dont set 7seg
+                    await d(1000)
                     ctrl.seg_show_num(lt_s, lt_h)
                     ctrl.led_g(0)
                     ctrl.mode = 0
-                    #del lap_tmr  # will be reset when mode is set to 1 again
+                    del lap_tmr  # will be reset when mode is set to 1 again
                 elif tdiff(tms(), lap_tmr) > 60000:  # reset mode as it does not seem to be used
                     ctrl.mode = 0
                     await blink(ctrl.led_g)
@@ -165,23 +172,20 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
                     ctrl.led_g(0)
 
             if not ecu.engine or ecu.rpm <= 0:  # engine not running (parking) or engine just starting up
-                # io.seg_clear()
-                ctrl.seg_char('P')  # todo debug
+                ctrl.seg_char('-')
             elif ecu.idle or ecu.gear is None:
-                if ecu.sidestand or ecu.speed < 5 and ecu.tp > 0:  # revving
+                if ecu.sidestand or ecu.speed < _REV_CIRCLE_SPEED_THRESH and ecu.tp > 0:  # revving
                     ctrl.seg_circle()
                     await d(int(-28*log(ecu.rpm) + 262))
-                    continue  # skip second yield
                 else:
-                    ctrl.seg_char('-')
+                    await ctrl.seg_flash(250)
+                continue  # skip second yield
             else:
-                # shift light (= flashing gear on display) if required:
-                if ecu.rpm > _SHIFT_LIGHT_RPM_THRESH:
-                    ctrl.seg_clear()
-                    await d(50)
+                # shift light if required:
                 ctrl.seg_digit(ecu.gear)
-                #await d(12)  # todo: remove, as second yield might be ok?
-                #continue  # skip second yield
+                if ecu.rpm > _SHIFT_LIGHT_RPM_THRESH and ecu.gear < 6:
+                    await ctrl.seg_flash(60)
+                    continue  # skip second yield
 
         await d(0)  # let ECU work
 
@@ -196,13 +200,14 @@ async def task_net():  # runs until network is not active any more for some reas
 
 
 async def await_pwroff():
-    while ctrl.powered():
+    while ctrl.powered() or ctrl.mode == 1:  # don't shutdown ESP if warn mode is active
         await d(1000)  # should be <= SW_HOLD_THRESH
 
 
 async def await_pwron():
     while not ctrl.powered():
         if not net.stay_on():
+            ctrl.off()
             deepsleep()
         await d(1000)
 
@@ -226,7 +231,8 @@ def main():
                 start_net()
                 break
         else:  # not pressed long enough
-            if not ctrl.powered():  # bike not powered on startup; was hard reset or motion wakeup
+            if not ctrl.powered():  # bike not powered on startup; was motion wakeup
+                ctrl.off()  # nothing should be on, but ok...
                 deepsleep()
 
     while True:
@@ -239,7 +245,7 @@ def main():
 
             # only required if net started afterwards, so no wrong data is displayed:
             reset_loop()  # clear ecu and ctrl task as these are not required now
-            ctrl.reset()
+            ctrl.clear()
             ecu.reset()
 
             if ctrl.switch_pressed():  # switch held down during shutdown
@@ -277,3 +283,8 @@ if __name__ == '__main__':
 
     # dupterm(UART0)  # enable WebREPL
     # dupterm(UART0, 1)  # enable REPL (v1.9.4)
+
+
+# NOTES:
+# reading from ECU only shows valid values if HISS system is disarmed. disarming only possible until ESP is connected
+# erase_flash not working? disconnect ESP from all power sources, then reconnect

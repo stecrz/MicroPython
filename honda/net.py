@@ -14,6 +14,10 @@ _AP_CONF = ('192.168.0.1', '255.255.255.0', '192.168.0.1', '')  # ip, subnet, ga
 _HTML_INDEX = "/html/index.html"  # None = unsued
 _HTML_404 = "/404.html"  # None = unused
 
+# global because both NetServer and NetClient need access
+_stay_on_for = 0  # chip is expected to remain on even if bike powered off for this time
+_stay_on_tmr = tms()  # in respect to this timer (set on network start)
+
 
 def read_cfg(key=None):  # key can be specified for a single entry, otherwise returns all data
     try:
@@ -61,7 +65,7 @@ def _json_prep(v):  # prepare json value so that dumps understands it and it can
         return v
 
 
-class _NetClient(WebSocketClient):
+class NetClient(WebSocketClient):
     def __init__(self):
         super().__init__()
 
@@ -96,8 +100,8 @@ class _NetClient(WebSocketClient):
 
     def execute(self, msg):  # execute a msg object (must be dict unpacket from json)
         try:
-            if 'PING' in msg:
-                self.send(ACK=msg['PING'])
+            if 'PING' in msg:  # send stay-on-time (secs) as ACK
+                self.send(ACK=max((_stay_on_for - tdiff(tms(), _stay_on_tmr)) // 1000, 0))
                 # print("acknowledged PING " + str(msg["PING"]))
                 self.conn_tmr = tms()  # reset timer
             elif 'SET' in msg and 'TO' in msg:  # client wants to set local variable
@@ -250,7 +254,7 @@ class _NetClient(WebSocketClient):
 
 class NetServer(WebSocketServer):
     def __init__(self):
-        super().__init__(_NetClient, _HTML_INDEX, 3, 2, _HTML_404)
+        super().__init__(NetClient, _HTML_INDEX, 3, 2, _HTML_404)
 
         with open(_CONFIG_FILE, 'r') as f:
             cfg = json.loads(f.read())
@@ -264,14 +268,12 @@ class NetServer(WebSocketServer):
         self._set_ap()
         self._set_sta()
 
-        self.stay_on_for = 0  # chip is expected to remain on even if bike powered off for this time
-        self._stay_on_tmr = tms()  # in respect to this timer (set on network start)
-
     def start(self, stay_on=0):
         # with stay_on you can optionally specify a time (minutes), how long the network
         # is expected to stay on after start even if bike is powered off (0 = shutdown network on poweroff)
-        self._stay_on_tmr = tms()
-        self.stay_on_for = stay_on * 60000  # minutes to ms
+        global _stay_on_for, _stay_on_tmr
+        _stay_on_for = stay_on * 60000  # minutes to ms
+        _stay_on_tmr = tms()
         if not self.active:
             self.active = True
             self._set_ap()
@@ -279,7 +281,8 @@ class NetServer(WebSocketServer):
             super().start(self._port)
 
     def stop(self):
-        self.stay_on_for = 0
+        global _stay_on_for
+        _stay_on_for = 0
         if self.active:
             self.active = False
             self._set_ap()
@@ -287,7 +290,7 @@ class NetServer(WebSocketServer):
             super().stop()
 
     def stay_on(self):  # returns True, if the chip is expected not to shutdown because of stay_on time
-        return tdiff(tms(), self._stay_on_tmr) < self.stay_on_for
+        return tdiff(tms(), _stay_on_tmr) < _stay_on_for
 
     def client_count(self):
         return len(self.clients)

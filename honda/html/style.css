@@ -222,6 +222,28 @@ h1 {
 	text-align: right;
 }
 
+.net {
+	margin-top: 0px;
+	margin-bottom: 34px;
+	table-layout: fixed;
+	font-size: 100%;
+}
+.net td {
+	padding: 1px 3px;
+	vertical-align: middle;
+	text-align: left;
+	white-space: nowrap;
+	line-height: 32px;
+}
+.net td:first-child {
+	text-align: right;
+	padding-right: 9px;
+}
+.net td:last-child {
+	padding-left: 9px;
+	min-width: 80px;
+}
+
 .buttons input {
 	margin: 4px 0;
 }

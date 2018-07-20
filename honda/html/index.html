@@ -80,10 +80,6 @@
 				<td colspan="2" style="text-align:center;">errechnet</td>
 			</tr>
 			<tr>
-				<td>Leerlauf:</td>
-				<td colspan="3"><span id="ecu.idle">~&nbsp;</span></td>
-			</tr>
-			<tr>
 				<td>Gasgriff:</td>
 				<td><span id="ecu.tp">~&nbsp;</span> %</td>
 				<td>TP:</td>
@@ -121,11 +117,22 @@
 		<div class="headline">Netzwerk</div>
 
 		<div class="buttons">
+			<input id="ifconfig" type="button" class="clickbtn" value="IP STATUS">
 			<input id="netls" type="button" class="clickbtn" value="ÜBERSICHT">
 			<input id="netadd" type="button" class="clickbtn" value="HINZUFÜGEN">
 			<input id="netrm" type="button" class="clickbtn" value="LÖSCHEN">
-			<input id="ifconfig" type="button" class="clickbtn" value="IP STATUS">
 		</div>
+
+		<table class="net">
+			<tr>
+				<td>Status:</td>
+				<td><span id="ackState">Warten...</span></td>
+			</tr>
+			<tr>
+				<td>Verbleibend:</td>
+				<td><span id="stayOnH">HH</span>:<span id="stayOnM">MM</span>:<span id="stayOnS">SS</span></td>
+			</tr>
+		</table>
 
 		<div class="buttons">
 			<input id="reboot" type="button" class="clickbtn" value="NEUSTART">
@@ -134,8 +141,7 @@
 		</div>
 
 		<div class="footer">
-			&#x00A9; 2018 &#x00B7; STECRZ &#x00B7;
-			Status: <span id="ackState">Warten...</span>
+			&#x00A9; 2018 &#x00B7; STECRZ
 		</div>
 		<script language="javascript" type="application/javascript" src="code.js"></script>
 	</body>

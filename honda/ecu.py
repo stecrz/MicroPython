@@ -21,7 +21,8 @@ class HondaECU:
 
     _TX_DELAY = 25  # minimum delay between two write-procedures on the UART (ms)
 
-    def __init__(self, uart, uart_timeout=300):
+    # IMPORTANT: dont use too small UART timeouts
+    def __init__(self, uart, uart_timeout=800):
         # note that <uart_timeout> is the timeout for reading a single byte from UART, meaning that reading e. g.
         # 10 bytes could take up to 10*<uart_timeout>. timeout exceed cause an Error and set ECU to not ready state
 
@@ -31,10 +32,10 @@ class HondaECU:
         self._wTmr = tms()  # to make sure there is a delay between two msgs being sent over UART
 
         self.ready = False  # set to False whenever the ECU has to be woken up using init-method
-        self._fir = 0  # fails in a row counter. will be increased and set back to zero if read was successful
+        # self._fir = 0  # fails in a row counter. will be increased and set back to zero if read was successful
         self.connecting = False  # set to True while the ECU is trying to connect to K-Line
 
-    async def init(self, timeout=4000):
+    async def init(self, timeout=5000):
         # Performs the ECU wakeup and initialize procedure if required (not ready).
         # ready state is True if it was finished successfully and false it failed (= timeout).
         # Also setup K-line by pulling it low before (what uart.sendbreak() normally does).
@@ -49,23 +50,21 @@ class HondaECU:
             sleep_ms(70)  # no intr here
             tx(1)
             del tx
-            sleep_ms(130)  # TODO await d(130)
+            await d(130)
 
             self._uart.init(10400, timeout=self._uart_to, bits=8, parity=None, stop=1)
             self._wTmr = tms()
 
             try:
                 await self.query((0xFE,), 0xFF)  # no resp excepted. alt: use 0x72 instead of 0xFF for response rType=0E
-                sleep_ms(200)  # todo yield
-                #await d(200)  # default delay might not be enough, just to be safe on startup
+                await d(200)  # default delay might not be enough, just to be safe on startup
                 await self.diag_query(0x00, 0xF0)  # return packet (02 04 00 FA) is validated, Exception otherwise
                 self.ready = True  # this point is only reached when no error occurs
                 return
             except ECUError:
                 if tdiff(self._wTmr, tmr) > timeout:
                     return
-                #await d(400)  # relax
-                sleep_ms(400)  # todo yield
+                await d(500)  # relax
             finally:
                 self.connecting = False
 
@@ -122,7 +121,7 @@ class HondaECU:
         r = b''
         if n is None:
             if self._uart.any():
-                # use StreamReader.read()?
+                # todo use StreamReader.read()?
                 r = self._uart.read()  # reads all
         else:
             # problem: StreamWriter is blocking (does not support timeouts neither in read nor in readexactly)
@@ -132,17 +131,18 @@ class HondaECU:
                 tmr = tms()
                 while not self._uart.any():
                     if tdiff(tms(), tmr) > self._uart_to:
-                        if self._fir >= 9:  # this must be the _th fail -> now reconnect required
-                            self.ready = False
-                        else:
-                            self._fir += 1
-                            raise ECUError(0)  # UART timeout
+                        # todo use fir again?
+                        # if self._fir >= 9:  # this must be the nth fail -> now reconnect required
+                        self.ready = False
+                        raise ECUError(0)  # UART timeout
+                        # else:
+                        #     self._fir += 1
                     await d(0)
                 r += self._uart.read(1)
                 n -= 1
 
-        if self._fir > 0:
-            self._fir -= 1
+        # if self._fir > 0:
+        #     self._fir -= 1
         return r
 
     async def _uwrite(self, msg):
@@ -182,7 +182,7 @@ class CBR500Sniffer(HondaECU):
         self.connecting = False
 
         # rare register data, e.g. regMap[0x11][13] = 14th byte (index 13) in table 0x11 as unsigned integer
-        TABLES = ((0x11, 20), (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21), (0xD1, 6))  # tables + length (len>0!!!)
+        TABLES = ((0x11, 20), (0xD1, 6))  # (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21))  # tables + length (len>0!!!)
         self.regMap = {t: bytearray(l) for t, l in TABLES}
 
         # known relevant registers:

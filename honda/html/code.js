@@ -49,14 +49,14 @@ function setupBtn(id, msg, reset=false) {
 		elem.onclick = function(evt) { sendVar(this.id, this.checked); }
 	} else if (elem.classList.contains("holdbtn")) {
 		elem.onmousedown = elem.ontouchstart = function(evt) {
-		    // TODO cannot check if is moving instead of really clicking, as ontouchmove is fired after ontouchstart
+			// TODO cannot check if is moving instead of really clicking, as ontouchmove is fired after ontouchstart
 			if (evt.button != 2 && !elem.classList.contains("disabled") && !elem.classList.contains("pressed")) {
 				this.classList.add("pressed");
 				sendVar(this.id, true);
 			}
 		}
 		elem.onmouseup = elem.ontouchend = function(evt) {
-			if (evt.button != 2 && !elem.classList.contains("disabled") && elem.classList.contains("pressed")) {
+			if (evt.button != 2) {  // always allow release
 				evt.preventDefault();
 				this.classList.remove("pressed");
 				sendVar(this.id, false);
@@ -78,20 +78,20 @@ function setupBtnNetwork(id, hintId, hintPw=null) {
 	var elem = $(id);
 
 	elem.oncontextmenu = function(evt) { evt.preventDefault(); }  // class "switch"
-    elem.onclick = function(evt) {
-        var valId = prompt(hintId, '');
-        if (valId == null || valId === '')
-            return;
-        if (hintPw == null) {
-            sendObj({'CMD': this.id, 'ID': valId});
-            return;
-        }
-        var valPw = prompt(hintPw, '');
-        if (valPw == null || valPw === '')
-            return;
-        sendObj({'CMD': this.id, 'ID': valId, 'PW': valPw});
-    }
-    elem.ontouchstart = function() { };  // to show :active state
+	elem.onclick = function(evt) {
+		var valId = prompt(hintId, '');
+		if (valId == null || valId === '')
+			return;
+		if (hintPw == null) {
+			sendObj({'CMD': this.id, 'ID': valId});
+			return;
+		}
+		var valPw = prompt(hintPw, '');
+		if (valPw == null || valPw === '')
+			return;
+		sendObj({'CMD': this.id, 'ID': valId, 'PW': valPw});
+	}
+	elem.ontouchstart = function() { };  // to show :active state
 }
 function setupBtnMode() {
 	var elem = $("ctrl.mode");
@@ -125,15 +125,15 @@ function resetAll() {
 
 	// cached variables cleared on screen:
 	if (cache != null) {
-        for (var obj in cache) {
-            for (var attr in cache[obj]) {
-                var elem = $(obj + '.' + attr);
-                if (elem != null && !elem.classList.contains("circle"))  // skip circle shapes
-                    setTxt(obj + '.' + attr, "~");
-            }
-        }
-    }
-    cache = null;
+		for (var obj in cache) {
+			for (var attr in cache[obj]) {
+				var elem = $(obj + '.' + attr);
+				if (elem != null && !elem.classList.contains("circle"))  // skip circle shapes
+					setTxt(obj + '.' + attr, "~");
+			}
+		}
+	}
+	cache = null;
 }
 
 function setBtnPrssd(elem, pressed) {
@@ -160,41 +160,40 @@ function setBg(id, color) {
 }
 
 function sendObj(dictObj) {
-    console.log(JSON.stringify(dictObj));
-    ws.send(JSON.stringify(dictObj));
+	//console.log(JSON.stringify(dictObj));
+	ws.send(JSON.stringify(dictObj));
 }
 function sendVar(vname, val) {
 	sendObj({'SET': vname.split('.'), 'TO': val});
 }
 
 function connect() {
-	//ws = new WebSocket("ws://" + "192.168.178.51" + ":" + PORT);  // TODO remove
-	ws = new WebSocket("ws://" + location.hostname + ":" + PORT);
+	ws = new WebSocket("ws://" + "192.168.0.1" + ":" + PORT);  // TODO remove
+	//ws = new WebSocket("ws://" + location.hostname + ":" + PORT);
 	cache = {};
 	pingNr = 0;
 	pingTries = WS_MAX_PINGS; // remaining tries
 	recvdReply = false;  // set to true if current ping was replied
 
-    var keepConn = setInterval( function() {
-        if (recvdReply) {
-            if (pingNr == 0)  // enable buttons on first ping reply
-		        disableBtns(false);
-            pingNr++;
-            pingTries = WS_MAX_PINGS;
-            recvdReply = false;
-        } else if (pingTries <= 0) {
-            console.log("ping-timeout");
-            setTxt("ackState", "Timeout (" + pingNr + ")");
-            clearInterval(keepConn);
-		    disableBtns(true);
-            ws.close();
-            return;
-        }
-        console.log("pinging " + pingNr);
-        pingTries--;
-        setTxt("ackState", "Ping (" + pingNr + ")");
-        sendObj({'PING': pingNr});
-    }, WS_PING_INTERVAL);
+	var keepConn = setInterval( function() {
+		if (recvdReply) {
+			if (pingNr == 0)  // enable buttons on first ping reply
+				disableBtns(false);
+			pingNr++;
+			pingTries = WS_MAX_PINGS;
+			recvdReply = false;
+		} else if (pingTries <= 0) {
+			//console.log("ping-timeout");
+			setTxt("ackState", "Timeout (" + pingNr + ")");
+			clearInterval(keepConn);
+			disableBtns(true);
+			ws.close();
+			return;
+		}
+		pingTries--;
+		setTxt("ackState", "Ping (" + pingNr + ")");
+		sendObj({'PING': pingNr});
+	}, WS_PING_INTERVAL);
 
 	ws.onopen = function() {
 		setTxt("ackState", "Verbunden");
@@ -205,15 +204,19 @@ function connect() {
 		//console.log(evt.data);
 		var jsonData = JSON.parse(evt.data);
 
-        if ('ACK' in jsonData) {
-            if (jsonData.ACK == pingNr) {
-                recvdReply = true;
-                setTxt("ackState", "OK (" + pingNr + ")");
-            } else {
-                console.log("ping answer, but wrong");
-                setTxt("ackState", "Wrong Reply (" + pingNr + ")");
-            }
-        }
+		if ('ACK' in jsonData) {
+			recvdReply = true;
+			setTxt("ackState", "OK (" + pingNr + ")");
+
+			var sec = jsonData.ACK;
+			var hour = Math.floor(sec / 3600);
+			var min = Math.floor((sec - (hour * 3600)) / 60);
+			sec -= (hour * 3600) + (min * 60);
+
+			setTxt("stayOnH", hour < 10 ? '0' + hour : hour);
+			setTxt("stayOnM", min < 10 ? '0' + min : min);
+			setTxt("stayOnS", sec < 10 ? '0' + sec : sec);
+		}
 		else if ('UPD' in jsonData) { // server is sending all data
 			deepmerge(jsonData.UPD, cache);
 
@@ -250,16 +253,19 @@ function connect() {
 							break;
 						case "idle":
 							disableBtn($("ctrl.rly.ST"), !cache.ecu.idle || !("engine" in cache.ecu) || cache.ecu.engine);
+							if (cache.ecu.idle)
+								setTxt("ecu.gear", 'N');
+							break;
 						case "sidestand":
-							setTxt("ecu." + attr, (cache.ecu[attr] == null) ? '?' :
-												  (cache.ecu[attr] ? '\u2713' : '\u2715'));
+							setTxt("ecu.sidestand", (cache.ecu.sidestand == null) ? '?' :
+												  (cache.ecu.sidestand ? '\u2713' : '\u2715'));
 							break;
 						case "engine":
 							disableBtn($("ctrl.rly.ST"), !cache.ecu.idle || cache.ecu.engine);
 							setBg("ecu.engine", cache.ecu.engine ? '#393' : '#d00');
 							break;
 						case "gear":
-							setTxt("ecu.gear", (cache.ecu.gear == null) ? 'N' : cache.ecu.gear);
+							setTxt("ecu.gear", (cache.ecu.idle || cache.ecu.gear == null) ? 'N' : cache.ecu.gear);
 							break;
 						case "regMap":
 							break;  // TODO currently regMap not used
@@ -285,15 +291,17 @@ function connect() {
 }
 
 function isJSONDict(v) {
-    return v !== null && v.constructor == Object;  // another: Array
+	return v !== null && v.constructor == Object;  // another: Array
 }
 
 function deepmerge(src, dest) { // simple deepmerge working for recursive dicts; writing src to dest
-    for (var attr in src) {
-        if (attr in dest && isJSONDict(src[attr]) && isJSONDict(dest[attr])) { // some parts of dict modified
-            deepmerge(src[attr], dest[attr]);
-        } else {  // new key or was not dict before or simply atomic value (list/tuple incl.) change
-            dest[attr] = src[attr];
-        }
-    }
+	for (var attr in src) {
+		if (attr in dest && isJSONDict(src[attr]) && isJSONDict(dest[attr])) { // some parts of dict modified
+			deepmerge(src[attr], dest[attr]);
+		} else {  // new key or was not dict before or simply atomic value (list/tuple incl.) change
+			dest[attr] = src[attr];
+		}
+	}
 }
+
+// TODO: make time limit settable
