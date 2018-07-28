@@ -20,7 +20,6 @@ from ecu import CBR500Sniffer, ECUError
 from ctrl import IOControl, blink
 from uasyncio import get_event_loop, sleep_ms as d  # for shorting delays: "await uasyncio.sleep_ms(1)" -> "await d(1)"
 from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms as sleep_ms
-from math import log
 from pwr import deepsleep
 import machine
 
@@ -29,8 +28,8 @@ _SHIFT_LIGHT_RPM_THRESH = 8000  # rpm
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
 _SW_BL_FLASH_COUNT = 7  # flash break light _ times when pressed
 _SW_PWRUP_TIMEOUT = 7000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
-_NET_DEFAULT_ACTIVE_TIME = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
-_REV_CIRCLE_SPEED_THRESH = 7  # assume revving (-> display circle on 7-seg) if throttle is used and speed <= _ km/h
+_NET_DEFAULT_ONTIME = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
+_DRIVING_SPEED_THRESH = 7  # assume waiting (or revving if throttle is used) if speed <= _ km/h
 
 UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate doesn't matter
 loop = get_event_loop()
@@ -70,15 +69,15 @@ async def task_ecu():
 
             try:
                 if not ecu.ready:
-                    ctrl.led_y(1)  # todo y LED indicates ECU not connected
-                    ecu.connecting = True  # not required, but otherwise task_blink will exit its blinking loop  # todo test wihout this line
+                    # ctrl.led_y(1)
+                    ecu.connecting = True  # not req, but otherwise task_blink will exit its blinking loop  # todo test wihout this line
                     loop.create_task(task_blink())
                     await ecu.init()
                     if not ecu.ready:  # timeout
                         await d(5000)
                         continue
                 await ecu.update(tab)
-                ctrl.led_y(0)  # todo
+                # ctrl.led_y(0)
                 err_counter = 0  # update was successful
             except ECUError as ex:
                 err_counter += 1
@@ -88,6 +87,7 @@ async def task_ecu():
                     ctrl.seg_clear()
                     break
             except Exception as ex:  # should not happen
+                ctrl.beep(5000)
                 ctrl.seg_char('F')  # TODO
                 raise ex
 
@@ -174,9 +174,13 @@ async def task_ctrl():  # mode based on switch (e.g. break light flash)
             if not ecu.engine or ecu.rpm <= 0:  # engine not running (probably parking) or engine just starting up
                 ctrl.seg_char('-')
             elif ecu.idle or ecu.gear is None:
-                if ecu.sidestand or ecu.speed < _REV_CIRCLE_SPEED_THRESH and ecu.tp > 0:  # revving
+                if ecu.sidestand or (ecu.speed <= _DRIVING_SPEED_THRESH and ecu.tp > 0):  # idle in parkmode or revving
                     ctrl.seg_circle()
-                    await d(int(-28*log(ecu.rpm) + 262))
+                    # await d(int(-28*log(ecu.rpm) + 262))  # from math import log
+                    await d(int(6.05e-14*ecu.rpm**4 - 1.52e-9*ecu.rpm**3 + 1.422e-5*ecu.rpm**2 - 0.0624*ecu.rpm + 124))
+                elif ecu.speed <= _DRIVING_SPEED_THRESH:  # idling, but not revving
+                    await d(300)  # let prev gear display shortly (first time) / let ECU work
+                    ctrl.seg_char('-')
                 else:
                     await ctrl.seg_flash(250)
                 continue  # skip second yield
@@ -212,7 +216,7 @@ async def await_pwron():
         await d(1000)
 
 
-def start_net(dur=_NET_DEFAULT_ACTIVE_TIME):
+def start_net(dur=_NET_DEFAULT_ONTIME):
     ctrl.led_y(1)
     net.start(dur)  # at least this time (sec) (more if bike powerdown is later)
     loop.create_task(task_net())
@@ -249,7 +253,7 @@ def main():
             ecu.reset()
 
             if ctrl.switch_pressed():  # switch held down during shutdown
-                start_net(ctrl.mode * 60 if ctrl.mode > 0 else _NET_DEFAULT_ACTIVE_TIME)  # will only set tmr if alr active
+                start_net(ctrl.mode * 60 if ctrl.mode > 0 else _NET_DEFAULT_ONTIME)  # will only set tmr if alr active
             elif ctrl.mode == 10:
                 ctrl.off()
                 return  # to console

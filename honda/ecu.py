@@ -205,13 +205,6 @@ class CBR500Sniffer(HondaECU):
                           #         kickstand + gear means idle=False although clutch might be pulled)
         self.gear = None  # calculated gear (1...6, None = Neutral or not calculatable)
 
-        # TODO missing:
-        # - fuel injector 1 & 2?
-        # - oxygen O2 sensor
-        # - engine oil pressure EOP switch
-        # - bank angle sensor (readable or online for emergency poweroff when bike dropped?)
-        # - AT sensor
-
     async def update(self, tab):
         v_new = await self.diag_query(0x71, tab)  # returns content/values of table t
         v_old = self.regMap[tab]
@@ -235,7 +228,7 @@ class CBR500Sniffer(HondaECU):
                 self.sidestand = None if v == 1 else bool(v)  # 2/3 = KS, 0 = no KS
                 self.idle = bool(v & 0b1)  # 0/2 = not startable, 1/3 = startable
             elif reg == 4:
-                self.engine = bool(val & 0b1)  # 0/1
+                self.engine = bool(val & 0b1)  # last bit (0/1)
         elif tab == 0x11:
             if reg == 0 or reg == 1:
                 self.rpm = (self.regMap[tab][0] << 8) + self.regMap[tab][1]
@@ -263,6 +256,15 @@ class CBR500Sniffer(HondaECU):
                 self._calc_gear()
             elif reg == 14 or reg == 15:
                 self.fuelInjTime = (self.regMap[tab][14] << 8) + self.regMap[tab][15]
+
+            # TODO missing:
+            # - 14/15?: fuel injector 1 & 2: injection timing
+            # - 16?: ignition angle (AFR, air fuel ratio), div by 16?
+            # - 17?: avg consumption of fuel l/100km, div by 10?
+            # - oxygen O2 sensor
+            # - engine oil pressure EOP switch
+            # - bank angle sensor (readable or online for emergency poweroff when bike dropped?)
+            # - AT sensor
 
     def _calc_gear(self):  # sets the gear based on the ratio (RPM/speed), 0 = probably neutral
         if self.speed <= 0:  # not driving
