@@ -24,18 +24,20 @@ _LED_G = 11
 _LED_Y = 8
 _BUZZER = 14  # TODO
 
-# binary codes for digits 0-9 (index) for 7 segment output h (MSB) to a (LSB), 1 meaning active
-_CODE_DIGIT = (0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F)
-_CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'H': 0x76, 'I': 0x06,
-              'J': 0x0E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E,
-              'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'u': 0x1C, '-': 0x40}
+# binary codes for for 7 segment output h (MSB) to a (LSB), 1 meaning active
+_CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'G': 0x3D, 'H': 0x76, 'I': 0x30,
+              'J': 0x1E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E, 'Y': 0x6E,
+              'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'n': 0x54, 'o': 0x5C, 'q': 0x67,
+              'r': 0x50, 't': 0x78, 'u': 0x1C, '-': 0x40, ' ': 0x00, '0': 0x3F, '1': 0x06,
+              '2': 0x5B, '3': 0x4F, '4': 0x66, '5': 0x6D, '6': 0x7D, '7': 0x07, '8': 0x7F, '9': 0x6F}
+# impossible chars: K, M, V, W, X, Z
 
 _ADDR_MCP2 = 0x24
 _IN_SWITCH_BLF = 8  # input pin for break light flash switch pin on MCP
 _IN_PWR = 10  # input pin for powered status of the bike
 
 # MCP output pins for relays (for class user; using constants internally!):
-_RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3}
+_RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}
 
 
 class IOControl:
@@ -53,15 +55,15 @@ class IOControl:
         # self._mcp1.decl_output(OutputController._LED_G)
 
         self._mcp2 = MCP23017(i2c, _ADDR_MCP2, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
-        for pin in range(4):  # reset relay outputs (off)
+        for pin in range(len(_RLY)):  # reset relay outputs (off)
             self._mcp2.decl_output(pin)
             self._mcp2.output(pin, 0)
         self._mcp2.decl_input(_IN_SWITCH_BLF)  # switch input
         self._mcp2.pullup(_IN_SWITCH_BLF, True)  # additional pullup (also there is the 82k pullup)
         self._mcp2.decl_input(_IN_PWR)  # powered status input
 
-        self._dot = 0  # dot currently lighted?
-        self._pattern = 0  # currently displayed segment pattern (without dot)
+        self.dot = 0  # dot currently lighted? (read-only from outside this class)
+        self.pattern = 0  # currently displayed segment pattern (without dot) (read-only from outside this class)
         self._circle = 1  # lighting pattern of circle if used (1, 2, 4, 8, 16, 32, 1, 2, ...)
 
         # last read states:
@@ -87,57 +89,44 @@ class IOControl:
     def off(self):  # turns off all outputs
         self.clear()
         self._mcp1.output(_BUZZER, 0)
-        for rly in range(4):
+        for rly in range(len(_RLY)):
             self._mcp2.output(rly, 0)
 
     def seg_dot(self, val=None):
         # Turns the 7-segment dot on/off; 1 = on, 0 = off, None = switch
-        self._dot = val if val is not None else not self._dot
-        self._mcp1.output(7, not self._dot)
+        self.dot = val if val is not None else not self.dot
+        self._mcp1.output(7, not self.dot)
 
     def seg_clear(self):  # turns the seven segment display off
-        self.seg_pattern(0)
+        self._seg_pattern(0)
         self.seg_dot(0)
 
-    def seg_digit(self, dig):
-        # Shows a single digit on the 7 segment display.
-        if dig not in range(10):
-            self.seg_clear()
-        else:
-            self.seg_pattern(_CODE_DIGIT[dig])
+    def seg_show(self, c):  # shows a single symbol (no dot) on the 7-seg
+        c = str(c)
+        if c not in _CODE_CHAR:
+            c = c.lower() if c.isupper() else c.upper()
+            if c not in _CODE_CHAR:
+                c = ' '
+        self._seg_pattern(_CODE_CHAR[c])
 
-    async def seg_show_num(self, num, f=None, t=650):
-        # Shows a whole number on the 7 segment display. <num> must be any integer. If you want to display a float
-        # number, you can use <f> for the decimal places (must be a positive integer). E.g.: 15.21 = seg_num(15, 21)
-        # Each digit (and separator) will be showed for <t> ms. The display will be cleared after displaying.
-
-        self.seg_dot(0)
-        if num < 0:
-            self.seg_char('-')
-
-        for dig in str(num):  # iterate over digits
-            self.seg_digit(int(dig))
-            await d(t)
+    async def seg_print(self, msg, t=650):
+        # Shows a text or number (could be negative or float)
+        # Each symbol will be shown for <t> ms. The display will be cleared after displaying.
+        for c in str(msg):
+            if c == '.':
+                self.seg_dot(1)
+                await d(t)
+                self.seg_dot(0)
+            else:
+                self.seg_show(c)
+                await d(t)
         self.seg_clear()
 
-        if f is not None:
-            self.seg_dot(1)
-            await d(t)
-            self.seg_dot(0)
-
-            for dig in str(f):
-                self.seg_digit(int(dig))
-                await d(t)
-            self.seg_clear()
-
-    def seg_char(self, char):
-        self.seg_pattern(_CODE_CHAR[char])
-
-    def seg_pattern(self, bits):
+    def _seg_pattern(self, bits):
         # Shows the binary pattern <bits> on the 7 segment display where 1 means on.
         # E.g. 0b0000101 lights up pin C and A. For dot please use seg_dot().
-        self._pattern = bits
-        pins = {}  # maps pins (0-7) to a val, where True means OFF (double positive) and False means ON
+        self.pattern = bits
+        pins = {}  # maps pins (0-6) to a val, where True means OFF (double positive) and False means ON
         for i in range(7):
             pins[i] = not (bits & 1)  # get i-th bit and invert it so that finally True means ON again (for the user)
             bits >>= 1
@@ -157,15 +146,15 @@ class IOControl:
                 self._circle = 0b100000
 
         if invert:
-            self.seg_pattern(self._circle ^ 0x3F)
+            self._seg_pattern(self._circle ^ 0x3F)
         else:
-            self.seg_pattern(self._circle)
+            self._seg_pattern(self._circle)
 
     async def seg_flash(self, pause):
-        pttrn = self._pattern  # currently displayed num/char
+        pttrn = self.pattern  # currently displayed num/char
         self.seg_clear()
         await d(pause)
-        self.seg_pattern(pttrn)
+        self._seg_pattern(pttrn)
         await d(pause)
 
     def led_g(self, val):  # turns green LED on/off; 1 = on, 0 = off
@@ -175,7 +164,7 @@ class IOControl:
         self._mcp1.output(_LED_Y, not val)
 
     def set_rly(self, name, val):
-        # turns relay name (HO, BL, ST, IG) on/off if <val> is True/False (1/0)
+        # turns relay name (HO, BL, ST, IG, LED) on/off if <val> is True/False (1/0)
         if not isinstance(val, bool) or name not in self.rly:
             return
         if val != self.rly[name]:

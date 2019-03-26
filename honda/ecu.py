@@ -173,6 +173,9 @@ _GEAR_RATIO_THRESH = (400, 120, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 
 class CBR500Sniffer(HondaECU):
     # Class for reading the registers of a Honda CBR500R ECM.
 
+    TABLES = {0x11: 20, 0xD1: 6}  # initial size for each table
+    # (0x11, 20), (0xD1, 6), (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21))  # tables + length (len>0!!!)
+
     def __init__(self, uart):  # UART will be reinitialized (baudrate, parity, ...), just object required
         super().__init__(uart)
         self.reset()
@@ -181,9 +184,8 @@ class CBR500Sniffer(HondaECU):
         self.ready = False
         self.connecting = False
 
-        # rare register data, e.g. regMap[0x11][13] = 14th byte (index 13) in table 0x11 as unsigned integer
-        TABLES = ((0x11, 20), (0xD1, 6))  # (0x20, 3), (0x61, 20), (0x70, 3), (0xD0, 21))  # tables + length (len>0!!!)
-        self.regMap = {t: bytearray(l) for t, l in TABLES}
+        # rare register data, e.g. _regMap[0x11][13] = 14th byte (index 13) in table 0x11 as unsigned integer
+        self._regMap = {t: bytearray(CBR500Sniffer.TABLES[t]) for t in CBR500Sniffer.TABLES}
 
         # known relevant registers:
         self.rpm = 0        # rounds per minute (CKP sensor)
@@ -207,7 +209,7 @@ class CBR500Sniffer(HondaECU):
 
     async def update(self, tab):
         v_new = await self.diag_query(0x71, tab)  # returns content/values of table t
-        v_old = self.regMap[tab]
+        v_old = self._regMap[tab]
 
         if len(v_new)-1 != len(v_old):
             return  # should not happen ever
@@ -220,7 +222,7 @@ class CBR500Sniffer(HondaECU):
 
     def _update_reg(self, tab, reg, val):
         # Writes int <val> to the register in table <tab> with offset <reg>. Additionally updates attributes.
-        self.regMap[tab][reg] = val
+        self._regMap[tab][reg] = val
 
         if tab == 0xD1:
             if reg == 0:
@@ -231,7 +233,7 @@ class CBR500Sniffer(HondaECU):
                 self.engine = bool(val & 0b1)  # last bit (0/1)
         elif tab == 0x11:
             if reg == 0 or reg == 1:
-                self.rpm = (self.regMap[tab][0] << 8) + self.regMap[tab][1]
+                self.rpm = (self._regMap[tab][0] << 8) + self._regMap[tab][1]
                 self._calc_gear()
             elif reg == 2:
                 self.tp_v = round(val * 5 / 256, 1)
@@ -255,7 +257,7 @@ class CBR500Sniffer(HondaECU):
                 self.speed = val
                 self._calc_gear()
             elif reg == 14 or reg == 15:
-                self.fuelInjTime = (self.regMap[tab][14] << 8) + self.regMap[tab][15]
+                self.fuelInjTime = (self._regMap[tab][14] << 8) + self._regMap[tab][15]
 
             # TODO missing:
             # - 14/15?: fuel injector 1 & 2: injection timing

@@ -1,35 +1,86 @@
-var $ = function(id) { return document.getElementById(id); };
+const $ = function(id) { return document.getElementById(id); };
 
 
-var PORT = 80;
-var WS_MAX_PINGS = 3;  // assume connection failed if _ pings fail in a row
-var WS_PING_INTERVAL = 3500;  // send ping message to server every ... ms (so that server does not close conn)
-var WS_RECONN_TIMEOUT = 5000;  // reconnect after _ ms on close
+const PORT = 80;
+const WS_MAX_PINGS = 3;  // assume connection failed if _ pings fail in a row
+const WS_PING_INTERVAL = 3500;  // send ping message to server every ... ms (so that server does not close conn)
+const WS_RECONN_TIMEOUT = 2000;  // reconnect after _ ms on close
 
-var ws;
+var ws, keepConn;
 var cache = null;
 
 var pingNr = 0;
 var pingTries = 0;
 var recvdReply = false;
 
-//var scrolling = false;
-//document.ontouchmove = function(e) { scrolling = true; }
-//document.ontouchend = function(e) { scrolling = false; }
+var touchmove = false; // for popup close
+
+
+const popupCnt = $("popupContainer");
+const popupConfirm = $("popupConfirm");
+const popupCancel = $("popupCancel");
+const popupInputs = $("popupInputs");
+
+window.ontouchmove = function(evt) { touchmove = true; }
+window.ontouchstart = function(evt) { touchmove = false; }
+popupCnt.onclick = window.ontouchend = function(evt) {
+	if (evt.target == popupCnt && !touchmove) {
+	    evt.preventDefault();  // no new button click
+		popupCnt.style.display = "none";
+	}
+}
+$("popupClose").onclick = popupCancel.onclick = function() {
+	popupCnt.style.display = "none";
+}
+
+/* msg: die anzuzeigende Nachricht
+ * confirmHandler: Funktion zur Verarbeitung der Eingabedaten der Inputs nach Klick auf Bestätigen
+ *				 (null = keine Funktion => kein Bestätigen/Abbrechen-Button)
+ * inputPhs: Array mit den Platzhaltern für Inputs (leer falls keine Inputs gewünscht)
+ * timeout: Popup automatisch nach _ ms schließen (0 = niemals schließen)
+ * popup() kann u.a. als Abfrage benutzt werden: confirm(question, onSuccessFunction)
+ */
+function popup(msg, confirmHandler=null, inputPhs=[], timeout=0) {
+	$("popupMsg").innerHTML = msg.replace(/\n/g, "<br>");
+
+	var inputHtml = "";
+	for (const ph of inputPhs)
+		inputHtml += "<input type=\"text\" placeholder=\"" + ph + "\">";
+	popupInputs.innerHTML = inputHtml;
+
+	popupCancel.style.display = confirmHandler == null ? "none" : "block";
+	popupConfirm.style.display = confirmHandler == null ? "none" : "block";
+
+	popupConfirm.onclick = confirmHandler == null ? null : function() {
+		var args = [];
+		for (var i = 0; i < popupInputs.children.length; i++)
+			args.push(popupInputs.children[i].value);
+		popupCnt.style.display = "none";
+		confirmHandler.apply(this, args);
+	}
+
+    if (timeout > 0)
+        setTimeout(function() { popupCnt.style.display = "none"; }, timeout);
+	popupCnt.style.display = "block";  // show
+}
+
+
 
 setupBtn("ctrl.rly.IG");
 setupBtn("ctrl.rly.BL");
 setupBtn("ctrl.rly.ST");
 setupBtn("ctrl.rly.HO");
-setupBtn("reboot", 	"Warnung: Der Chip wird über einen SOFTRESET zurückgesetzt.\n" +
-					"Das Netzwerk-Interface wird anschließend reaktiviert.\n\nFortfahren?", true);
-setupBtn("deepsleep", "Warnung: Der Chip wird in den DEEPSLEEP-Modus versetzt.\n\nFortfahren?", true);
-setupBtn("console", "Warnung: Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen.\n\nFortfahren?", true);
+setupBtn("ctrl.rly.LED");
+setupBtn("reboot", 	"Der Chip wird über einen <b>Soft-Reset</b> zurückgesetzt. Das Netzwerk-Interface wird anschließend reaktiviert.", true);
+setupBtn("deepsleep", "<b>Warnung:</b> Der Chip wird in den <b>Deepsleep</b>-Modus versetzt.", true);
+setupBtn("console", "<b>Warnung:</b> Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen.", true);
 setupBtn("ifconfig");
 setupBtn("netls");
-setupBtnNetwork("netadd", "Name des zu neuen/geänderten Netzwerks:", "Netzwerksicherheitsschlüssel:");
-setupBtnNetwork("netrm", "Name des zu entfernenden Netzwerks:");
-setupBtnMode()  // for ctrl.mode
+setupBtnNetwork("netadd", "Neue Netzwerkverbindung hinzufügen (bzw. Passwort ändern):", "SSID", "Sicherheitsschlüssel");
+setupBtnNetwork("netrm", "Zu löschendes Netzwerk eingeben:", "SSID");
+setupTxtMode("ctrl.mode");
+setupTxtTimer("nettime");
+setupBtnPrint();
 
 resetAll();  // initial setup
 
@@ -38,7 +89,7 @@ connect();
 
 // setup the button with id <id> as specified by class in HTML file.
 // <msg> can be specified for: clickbtn = confirm the click before firing (alert); inputbtn = secify value to be sent
-// <reset> can be set to true if everthing should be reset afterwards (buttons disabled, cache cleared); clickbtn only
+// <reset> can be set to true if everthing should be reset afterwards (connection closed); clickbtn only
 function setupBtn(id, msg, reset=false) {
 	var elem = $(id);
 
@@ -46,75 +97,111 @@ function setupBtn(id, msg, reset=false) {
 
 	if (elem.classList.contains("switch-onoff")) {
 		elem.parentNode.oncontextmenu = elem.oncontextmenu;
-		elem.onclick = function(evt) { sendVar(this.id, this.checked); }
+		elem.onclick = function(evt) { sendVar(id, this.checked); }
 	} else if (elem.classList.contains("holdbtn")) {
 		elem.onmousedown = elem.ontouchstart = function(evt) {
-			// TODO cannot check if is moving instead of really clicking, as ontouchmove is fired after ontouchstart
 			if (evt.button != 2 && !elem.classList.contains("disabled") && !elem.classList.contains("pressed")) {
 				this.classList.add("pressed");
-				sendVar(this.id, true);
+				sendVar(id, true);
+			}
+		}
+		// TODO: ontouchmove fired after ontouchstart, therefore btn will be activated shortly
+		elem.onmousemove = elem.ontouchmove = function(evt) {
+			if (evt.button != 2) {  // always allow release
+				this.classList.remove("pressed");
+				sendVar(id, false);
 			}
 		}
 		elem.onmouseup = elem.ontouchend = function(evt) {
 			if (evt.button != 2) {  // always allow release
 				evt.preventDefault();
 				this.classList.remove("pressed");
-				sendVar(this.id, false);
+				sendVar(id, false);
 			}
 		}
 	} else if (elem.classList.contains("clickbtn")) {
-		elem.onclick = function(evt) {
-			if (typeof msg === 'undefined' || confirm(msg))
-				sendObj({'CMD': this.id});
+	    function perform() {
+	        sendObj({'CMD': id});
 			if (reset) {
-				resetAll();
-				//ws.onclose();  // faster reconnect, but no good solution
+                setTxt("ackState", "Reset");
+			    disconnect();
 			}
-		}
-		elem.ontouchstart = function() { }  // to show :active state
+	    }
+		elem.onclick = typeof msg === 'undefined' ? perform : function(){ popup(msg, perform); };
+		elem.ontouchstart = function(){}  // to show :active state
 	}
 }
-function setupBtnNetwork(id, hintId, hintPw=null) {
+function setupBtnNetwork(id, msg, hintId, hintPw=null) {
 	var elem = $(id);
-
 	elem.oncontextmenu = function(evt) { evt.preventDefault(); }  // class "switch"
 	elem.onclick = function(evt) {
-		var valId = prompt(hintId, '');
-		if (valId == null || valId === '')
-			return;
-		if (hintPw == null) {
-			sendObj({'CMD': this.id, 'ID': valId});
-			return;
-		}
-		var valPw = prompt(hintPw, '');
-		if (valPw == null || valPw === '')
-			return;
-		sendObj({'CMD': this.id, 'ID': valId, 'PW': valPw});
+		popup(msg, function(valId, valPw) {
+		    if (valId === '')
+		        popup("Bitte Netzwerkname (SSID) eingeben!");
+		    else if (valPw == null) // hintPw was null
+		        sendObj({'CMD': id, 'ID': valId});
+		    else
+		        sendObj({'CMD': id, 'ID': valId, 'PW': valPw});
+		}, hintPw == null ? [hintId] : [hintId, hintPw]);
 	}
-	elem.ontouchstart = function() { };  // to show :active state
+	elem.ontouchstart = function(){};  // to show :active state
 }
-function setupBtnMode() {
-	var elem = $("ctrl.mode");
+function setupTxtMode(id) {
+	var elem = $(id);
 	elem.onclick = function(evt) {
 		if (evt.button != 2 && !elem.classList.contains("disabled")) {
-			var inp = parseInt(prompt("Modus ändern:", cache.ctrl.mode));
-			if (!isNaN(inp))
-				sendVar(this.id, inp);
+            popup("Modus setzen:", function(newMode) {
+                var val = parseInt(newMode);
+                if (!isNaN(val))
+                    sendVar(id, val);
+                else
+                    popup("Ungültige Eingabe!");
+            }, [cache.ctrl.mode]);
 		}
 	}
+}
+function setupTxtTimer(id) {
+	var elem = $(id);
+	elem.onclick = function(evt) {
+		if (evt.button != 2 && !elem.classList.contains("disabled")) {
+            popup("Verbleibende Netzwerk-Ontime:", function(h, m, s) {
+                if (h === '' && m === '' && s === '')
+                    popup("Bitte mindestens einen Wert angeben!");
+                else {
+                    var hrs = h === '' ? 0 : parseInt(h);
+                    var min = m === '' ? 0 : parseInt(m);
+                    var sec = s === '' ? 0 : parseInt(s);
+                    if (isNaN(hrs) || isNaN(min) || isNaN(sec))
+                        popup("Eingabe ist keine Zahl!");
+                    else
+		                sendObj({'CMD': id, 'VAL': (hrs*60 + min)*60 + sec});
+                }
+            }, ["Stunden", "Minuten", "Sekunden"]);
+		}
+	}
+}
+function setupBtnPrint() {
+    $("print").onclick = function(evt) {
+        var invalidChar;
+        let txt = $("segout").value;
+        if ((invalidChar = /[^a-zA-Z0-9_\.\-\s]|[KMVWXZkmvwxz]/.exec(txt)) != null)
+            popup("Das Zeichen '" + invalidChar + "' ist nicht darstellbar.");
+        else
+            sendObj({'CMD': "print", 'MSG': txt});
+    }
 }
 
 function disableBtn(elem, disabled) {
-	if (elem.classList.contains("holdbtn") || elem.classList.contains("inputbtn"))
+	if (elem.classList.contains("switch-onoff") || elem.classList.contains("clickbtn"))
+		elem.disabled = disabled;
+	else
 		if (disabled)
 			elem.classList.add("disabled");
 		else
 			elem.classList.remove("disabled");
-	else
-		elem.disabled = disabled;
 }
 function disableBtns(disable) {
-	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn");
+	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn,.submitbtn");
 	[].forEach.call(btns, function(elem) { disableBtn(elem, disable); } );
 }
 function resetAll() {
@@ -122,6 +209,9 @@ function resetAll() {
 	setBg("ctrl.pwr", '#777');
 	setBg("ecu.engine", '#777');
 	setBg("ecu.ready", '#777');
+
+    for (var i = 0; i < 8; i++)
+        segShow("seg-" + String.fromCharCode(97 + i), 0);
 
 	// cached variables cleared on screen:
 	if (cache != null) {
@@ -158,9 +248,15 @@ function setTxt(id, value) {
 function setBg(id, color) {
 	$(id).style.backgroundColor = color;
 }
+function segShow(segId, active) {
+    if (active)
+        $(segId).classList.add("seg-show");
+    else
+        $(segId).classList.remove("seg-show");
+}
 
 function sendObj(dictObj) {
-	//console.log(JSON.stringify(dictObj));
+	console.log(JSON.stringify(dictObj));
 	ws.send(JSON.stringify(dictObj));
 }
 function sendVar(vname, val) {
@@ -175,7 +271,7 @@ function connect() {
 	pingTries = WS_MAX_PINGS; // remaining tries
 	recvdReply = false;  // set to true if current ping was replied
 
-	var keepConn = setInterval( function() {
+	keepConn = setInterval( function() {
 		if (recvdReply) {
 			if (pingNr == 0)  // enable buttons on first ping reply
 				disableBtns(false);
@@ -185,9 +281,7 @@ function connect() {
 		} else if (pingTries <= 0) {
 			//console.log("ping-timeout");
 			setTxt("ackState", "Timeout (" + pingNr + ")");
-			clearInterval(keepConn);
-			disableBtns(true);
-			ws.close();
+			disconnect();
 			return;
 		}
 		pingTries--;
@@ -237,6 +331,13 @@ function connect() {
 							break;
 						case "sw_pressed":  // TODO
 							break;
+						case "dot":
+						    segShow("seg-h", cache.ctrl.dot);
+						    break;
+						case "pattern":
+						    for (var i = 0; i < 7; i++)
+						        segShow("seg-" + String.fromCharCode(97 + i), cache.ctrl.pattern & (1 << i));
+						    break;
 						case "mode":
 							setTxt('ctrl.mode', cache.ctrl.mode);
 							break;
@@ -267,8 +368,6 @@ function connect() {
 						case "gear":
 							setTxt("ecu.gear", (cache.ecu.idle || cache.ecu.gear == null) ? 'N' : cache.ecu.gear);
 							break;
-						case "regMap":
-							break;  // TODO currently regMap not used
 						default:  // rest = all the values that are matched 1:1 from script to HTML text fields
 							setTxt("ecu." + attr, cache.ecu[attr]);
 							break;
@@ -278,16 +377,19 @@ function connect() {
 
 		}
 		else if ('ALERT' in jsonData) {
-			alert(jsonData['ALERT']);  // TODO: use HTML popup window instead, as JS popup is blocking JS
+			popup(jsonData['ALERT']);
 		}
 	}
 
-	ws.onclose = function(evt) {
-		resetAll();
-		setTxt("ackState", "Beendet");
-
-		setTimeout(connect, WS_RECONN_TIMEOUT); // auto-reconnect
-	}
+	ws.onclose = disconnect;
+}
+function disconnect() {
+    clearInterval(keepConn);
+    resetAll();
+    setTxt("ackState", "Beendet");
+    ws = null;
+    keepConn = null;
+    setTimeout(connect, WS_RECONN_TIMEOUT); // auto-reconnect
 }
 
 function isJSONDict(v) {
@@ -303,5 +405,3 @@ function deepmerge(src, dest) { // simple deepmerge working for recursive dicts;
 		}
 	}
 }
-
-// TODO: make time limit settable

@@ -262,10 +262,10 @@ h1 {
 	color: #888;
 	border-color: #888;
 }
-.inputbtn {
+.clickable-txt, .inputbtn {
 	cursor: pointer;
 }
-.inputbtn.disabled {
+.clickable-txt.disabled, .inputbtn.disabled {
 	cursor: default;
 }
 
@@ -274,3 +274,119 @@ h1 {
 	color: #888;
 	margin 0;
 }
+
+
+#popupContainer {
+	display: none;
+	position: fixed;
+	top: 0; left: 0;
+	width: 100%; height: 100%;
+	margin: 0;
+	z-index: 1;
+	overflow: auto;
+	background-color: rgba(0,0,0,0.4);
+	font-size: 70%;
+}
+
+#popupBox {
+	position: absolute;
+	top: 50%; left: 50%;
+	width: 260px;
+	transform: translate(-50%,-50%);
+	padding: 6px 13px;
+    text-align: left;
+	border: 1px solid #aaa;
+	color: #000;
+	background-color: #fff;
+}
+
+#popupClose {
+	float: right;
+    margin-left: 10px;
+	font-weight: bold;
+	color: #aaa;
+}
+#popupClose:hover, #popupClose:focus {
+    cursor: pointer;
+    text-decoration: none;
+	color: #000;
+}
+
+#popupMsg {
+    margin: 3px 0;
+}
+
+#popupInputs input {
+	display: block;
+	width: 100%;
+    margin: 4px 0px;
+	box-sizing: border-box;
+	-moz-box-sizing: border-box;
+}
+#popupInputs > :first-child {
+	margin-top: 10px;
+}
+
+#popupCancel, #popupConfirm {
+	margin: 4px 0 3px 5px;
+	float: right;
+}
+
+
+.segment-display {
+    position: relative;
+	width: 102px; height: 153px;
+}
+.segment-display > div {
+	display: block;
+	position: absolute;
+    opacity: 0.15;
+}
+.seg-edge {
+	position: absolute;
+}
+
+.seg-x, .seg-x .seg-edge {
+	width: 50px;
+	border-left: 8px solid rgba(0,0,0,0);
+	border-right: 8px solid rgba(0,0,0,0);
+}
+.seg-x {
+	border-bottom: 8px solid #fff;
+}
+.seg-x .seg-edge {
+	left: -8px; top: 8px;
+	border-top: 8px solid #fff;
+}
+
+.seg-y, .seg-y .seg-edge {
+	height: 50px;
+	border-top: 8px solid rgba(0,0,0,0);
+	border-bottom: 8px solid rgba(0,0,0,0);
+}
+.seg-y {
+	border-right: 8px solid #fff;
+}
+.seg-y .seg-edge {
+	left: 8px; top: -8px;
+	border-left: 8px solid #fff;
+}
+
+.seg-dot {
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background-color: #fff;
+}
+
+.seg-show {
+    opacity: 1!important;
+}
+
+#seg-a { left: 9px; top: 0px; }
+#seg-b { left: 68px; top: 9px; }
+#seg-c { left: 68px; top: 77px; }
+#seg-d { left: 9px; top: 136px; }
+#seg-e { left: 0px; top: 77px; }
+#seg-f { left: 0px; top: 9px; }
+#seg-g { left: 9px; top: 68px; }
+#seg-h { left: 85px; top: 136px; }

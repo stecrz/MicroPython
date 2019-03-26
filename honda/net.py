@@ -3,6 +3,7 @@ from utime import ticks_ms as tms, ticks_diff as tdiff
 import ujson as json
 from pwr import deepsleep
 from machine import reset
+from uasyncio import get_event_loop
 import network
 
 
@@ -71,7 +72,7 @@ class NetClient(WebSocketClient):
 
         # assuming module references don't change over time, so once e.g. ecu is defined, only its contents will
         # change. data is stored in format {obj1: {...}, obj2: {...}, ...}
-        self.obj = {o: locals()[o] for o in _OBJS}
+        self.obj = {o: locals()[o] for o in _OBJS}  # e.g. obj['ecu'] = <ECU object at 3abf00c1>
         self.data = {o: {} for o in _OBJS}
         # initial update cannot be done here (write only allowed after setup()) -> _update
 
@@ -99,6 +100,7 @@ class NetClient(WebSocketClient):
         self.write(json.dumps(_json_prep(msg)))
 
     def execute(self, msg):  # execute a msg object (must be dict unpacket from json)
+        global _stay_on_for, _stay_on_tmr
         try:
             if 'PING' in msg:  # send stay-on-time (secs) as ACK
                 self.send(ACK=max((_stay_on_for - tdiff(tms(), _stay_on_tmr)) // 1000, 0))
@@ -146,6 +148,11 @@ class NetClient(WebSocketClient):
                     else:
                         return  # not found -> nothing to do
                     write_cfg(cfg)
+                elif cmd == "nettime":
+                    _stay_on_for = int(msg['VAL']) * 1000  # ms
+                    _stay_on_tmr = tms()
+                elif cmd == "print":
+                    get_event_loop().create_task(self.obj['ctrl'].seg_print(msg["MSG"]))
             # elif 'GET' in msg:  # client wants to get local variable(s)
             #     if not msg['GET']:  # empty string or None -> enquiring all cached data
             #         self.send(UPDATE=self.data)

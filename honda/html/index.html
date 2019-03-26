@@ -12,6 +12,18 @@
 	</head>
 
 	<body>
+		<div id="popupContainer">
+			<div id="popupBox">
+				<div id="popupClose">&#x2716;</div>
+				<div id="popupMsg"></div>
+				<div id="popupInputs">
+					<!-- filled by JS popup function -->
+				</div>
+				<button id="popupCancel">Abbrechen</button>
+				<button id="popupConfirm">Bestätigen</button>
+			</div>
+		</div>
+
 		<h1>Scarlett Control</h1>
 
 		<table class="relays">
@@ -43,6 +55,18 @@
 					<div class="switch">
 						<input id="ctrl.rly.BL" type="checkbox" class="switch-onoff">
 						<label for="ctrl.rly.BL" class="switch-label">
+							<span class="switch-inner"></span>
+							<span class="switch-nib"></span>
+						</label>
+					</div>
+				</td>
+			</tr>
+			<tr>
+				<td>LEDs:</td>
+				<td>
+					<div class="switch">
+						<input id="ctrl.rly.LED" type="checkbox" class="switch-onoff">
+						<label for="ctrl.rly.LED" class="switch-label">
 							<span class="switch-inner"></span>
 							<span class="switch-nib"></span>
 						</label>
@@ -114,6 +138,32 @@
 			</tr>
 		</table>
 
+		<div class="headline">Anzeige</div>
+
+		<div class="segment-display">
+			<div id="seg-a" class="seg-x"><div class="seg-edge"></div></div>
+			<div id="seg-b" class="seg-y"><div class="seg-edge"></div></div>
+			<div id="seg-c" class="seg-y"><div class="seg-edge"></div></div>
+			<div id="seg-d" class="seg-x"><div class="seg-edge"></div></div>
+			<div id="seg-e" class="seg-y"><div class="seg-edge"></div></div>
+			<div id="seg-f" class="seg-y"><div class="seg-edge"></div></div>
+			<div id="seg-g" class="seg-x"><div class="seg-edge"></div></div>
+			<div id="seg-h" class="seg-dot"></div>
+		</div>
+
+		<div>
+			<input id="segout" type="text" placeholder="Ausgabetext">
+			<input id="print" type="button" class="submitbtn" value="Senden">
+		</div>
+
+
+		<div class="headline">System</div>
+
+		<div class="buttons">
+			<input id="reboot" type="button" class="clickbtn" value="NEUSTART">
+			<input id="deepsleep" type="button" class="clickbtn" value="STANDBY">
+			<input id="console" type="button" class="clickbtn" value="KONSOLE">
+		</div>
 		<div class="headline">Netzwerk</div>
 
 		<div class="buttons">
@@ -130,19 +180,14 @@
 			</tr>
 			<tr>
 				<td>Verbleibend:</td>
-				<td><span id="stayOnH">HH</span>:<span id="stayOnM">MM</span>:<span id="stayOnS">SS</span></td>
+				<td id="nettime" class="inputbtn"><span id="stayOnH">HH</span>:<span id="stayOnM">MM</span>:<span id="stayOnS">SS</span></td>
 			</tr>
 		</table>
 
-		<div class="buttons">
-			<input id="reboot" type="button" class="clickbtn" value="NEUSTART">
-			<input id="deepsleep" type="button" class="clickbtn" value="STANDBY">
-			<input id="console" type="button" class="clickbtn" value="KONSOLE">
+		<div class="footer">
+			&#x00A9; 2019 &#x00B7; STECRZ
 		</div>
 
-		<div class="footer">
-			&#x00A9; 2018 &#x00B7; STECRZ
-		</div>
 		<script language="javascript" type="application/javascript" src="code.js"></script>
 	</body>
 </html>
@@ -150,5 +195,7 @@
 <!-- TODO: -->
 <!-- ECU Modus, BLF Switch-->
 <!-- ECU Datentabelle -->
-<!-- WLAN hinzufügen: Datenbank auf ESP, HTML-Clickbutton, JS handler wie bei alert() nur mit prompt() -->
+<!-- WLAN hinzufügen: Datenbank auf ESP -->
 <!-- Play Tone (select list) -->
+<!-- Textausgabe über 7 Seg. -->
+<!-- set remaining wifi ontime -->
