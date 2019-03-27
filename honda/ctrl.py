@@ -93,7 +93,7 @@ class IOControl:
             self._mcp2.output(rly, 0)
 
     def seg_dot(self, val=None):
-        # Turns the 7-segment dot on/off; 1 = on, 0 = off, None = switch
+        # Turns the 7-segment dot on/off; 1 = on, 0 = off, None = switch; does not affect pattern
         self.dot = val if val is not None else not self.dot
         self._mcp1.output(7, not self.dot)
 
@@ -101,25 +101,25 @@ class IOControl:
         self._seg_pattern(0)
         self.seg_dot(0)
 
-    def seg_show(self, c):  # shows a single symbol (no dot) on the 7-seg
+    def seg_show(self, c):  # shows a single symbol on the 7-seg
         c = str(c)
+        if c == '.':
+            self.seg_dot(1)  # seg_pattern will clear the rest
         if c not in _CODE_CHAR:
             c = c.lower() if c.isupper() else c.upper()
             if c not in _CODE_CHAR:
                 c = ' '
         self._seg_pattern(_CODE_CHAR[c])
 
-    async def seg_print(self, msg, t=650):
+    async def seg_print(self, msg, t=600, p=100):
         # Shows a text or number (could be negative or float)
-        # Each symbol will be shown for <t> ms. The display will be cleared after displaying.
+        # Each symbol will be shown for <t> ms, followed by a <p> ms pause (nothing displayed)
+        # The display will be cleared after displaying.
         for c in str(msg):
-            if c == '.':
-                self.seg_dot(1)
-                await d(t)
-                self.seg_dot(0)
-            else:
-                self.seg_show(c)
-                await d(t)
+            self.seg_clear()
+            await d(p)
+            self.seg_show(c)
+            await d(t)
         self.seg_clear()
 
     def _seg_pattern(self, bits):

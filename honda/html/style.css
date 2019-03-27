@@ -152,6 +152,13 @@ h1 {
 	vertical-align: middle;
 	margin: 0;
 }
+.circle-headertxt {
+    font-size: 12px;
+    font-weight: normal;
+    display: inline;
+    vertical-align: middle;
+    padding-top: 2px;
+}
 .circle {
 	height: 10px;
 	width: 10px;
@@ -269,6 +276,51 @@ h1 {
 	cursor: default;
 }
 
+.submitbtn-txt {
+    flex: 1 0 auto;
+    margin-left: 11px;
+    margin-right: 6px;
+    font-size: 18px;
+    height: 18px;
+    border: none;
+    border-bottom: 1px solid rgba(0,0,0,0.3);
+    outline: none;
+    background: rgba(0,0,0,0);
+}
+.submitbtn-send {
+    padding: 3px 12px;
+    font-size: 24px;
+    cursor: pointer;
+    border: none;
+    outline: none;
+    background: none;
+}
+.submitbtn {
+    position: relative;
+    width: 300px;
+	border-radius: 5px; -moz-border-radius: 5px; -webkit-border-radius: 5px;
+    display: flex;
+    align-items: center;
+	vertical-align: middle;
+	-webkit-tap-highlight-color: rgba(0,0,0,0);
+	background-color: #ddd;
+}
+.submitbtn.pressed {
+    background: #29d9c2;
+}
+.submitbtn-send.pressed {
+    color: #fff;
+}
+.submitbtn.disabled {
+	opacity: 0.4; -webkit-opacity: 0.4;
+}
+.submitbtn-send:disabled {
+	cursor: default;
+}
+.submitbtn-txt:invalid {
+    color: #f00;
+}
+
 .footer {
 	font-size: 10px;
 	color: #888;
@@ -313,10 +365,12 @@ h1 {
 }
 
 #popupMsg {
+    font-size: 16px;
     margin: 3px 0;
 }
 
 #popupInputs input {
+    font-size: 16px;
 	display: block;
 	width: 100%;
     margin: 4px 0px;
@@ -328,6 +382,7 @@ h1 {
 }
 
 #popupCancel, #popupConfirm {
+    font-size: 16px;
 	margin: 4px 0 3px 5px;
 	float: right;
 }
@@ -335,7 +390,7 @@ h1 {
 
 .segment-display {
     position: relative;
-	width: 102px; height: 153px;
+	width: 102px; height: 160px;
 }
 .segment-display > div {
 	display: block;

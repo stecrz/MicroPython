@@ -138,7 +138,10 @@
 			</tr>
 		</table>
 
-		<div class="headline">Anzeige</div>
+		<div class="headline">Anzeige
+			<span class="circle-headertxt">&nbsp;BLFS: </span>
+			<span class="circle" id="ctrl.sw_pressed"></span>
+		</div>
 
 		<div class="segment-display">
 			<div id="seg-a" class="seg-x"><div class="seg-edge"></div></div>
@@ -151,11 +154,11 @@
 			<div id="seg-h" class="seg-dot"></div>
 		</div>
 
-		<div>
-			<input id="segout" type="text" placeholder="Ausgabetext">
-			<input id="print" type="button" class="submitbtn" value="Senden">
-		</div>
-
+		<form id="segform" class="submitbtn">
+			<input id="segout" type="text" class="submitbtn-txt" placeholder="Ausgabetext"
+				   pattern="[a-jln-uyA-JLN-UY0-9._ -]*" title="Buchstaben (ohne KMVWXZ), Zahlen, ., -, _, Leerzeichen">
+			<input id="print" type="submit" class="submitbtn-send" value="&#8618;&#xFE0E;">
+		</form>
 
 		<div class="headline">System</div>
 
@@ -193,9 +196,5 @@
 </html>
 
 <!-- TODO: -->
-<!-- ECU Modus, BLF Switch-->
 <!-- ECU Datentabelle -->
 <!-- WLAN hinzufügen: Datenbank auf ESP -->
-<!-- Play Tone (select list) -->
-<!-- Textausgabe über 7 Seg. -->
-<!-- set remaining wifi ontime -->

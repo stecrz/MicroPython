@@ -6,8 +6,9 @@ const WS_MAX_PINGS = 3;  // assume connection failed if _ pings fail in a row
 const WS_PING_INTERVAL = 3500;  // send ping message to server every ... ms (so that server does not close conn)
 const WS_RECONN_TIMEOUT = 2000;  // reconnect after _ ms on close
 
-var ws, keepConn;
+var ws;
 var cache = null;
+window.keepConn = null;  // attach setInterval()-Pinger to DOM-window to prevent oberlapping intervals
 
 var pingNr = 0;
 var pingTries = 0;
@@ -45,7 +46,7 @@ function popup(msg, confirmHandler=null, inputPhs=[], timeout=0) {
 
 	var inputHtml = "";
 	for (const ph of inputPhs)
-		inputHtml += "<input type=\"text\" placeholder=\"" + ph + "\">";
+		inputHtml += "<input type=\"text\" placeholder=\"" + ph + "\" autofocus>";
 	popupInputs.innerHTML = inputHtml;
 
 	popupCancel.style.display = confirmHandler == null ? "none" : "block";
@@ -181,18 +182,30 @@ function setupTxtTimer(id) {
 	}
 }
 function setupBtnPrint() {
-    $("print").onclick = function(evt) {
-        var invalidChar;
-        let txt = $("segout").value;
-        if ((invalidChar = /[^a-zA-Z0-9_\.\-\s]|[KMVWXZkmvwxz]/.exec(txt)) != null)
-            popup("Das Zeichen '" + invalidChar + "' ist nicht darstellbar.");
-        else
-            sendObj({'CMD': "print", 'MSG': txt});
+    var elem = $("print");  // the real send button
+    var form = $("segform");  // surrounding form containing input + btn
+    //let txt = $("segout").value;
+    //if ((invalidChar = /[^a-zA-Z0-9_\.\-\s]|[KMVWXZkmvwxz]/.exec(txt)) != null)
+    //  popup("Das Zeichen '" + invalidChar + "' ist nicht darstellbar.");}
+    elem.onmousedown = elem.ontouchstart = function(evt) {
+        if (evt.button != 2 && !elem.disabled && !elem.classList.contains("pressed")) {
+            elem.classList.add("pressed");
+            form.classList.add("pressed");
+        }
+    }
+    form.onsubmit = function(evt) {
+        evt.preventDefault();
+        if (!elem.disabled) {
+            elem.classList.remove("pressed");
+            form.classList.remove("pressed");
+            sendObj({'CMD': "print", 'MSG': $("segout").value});
+        }
+        return false;
     }
 }
 
 function disableBtn(elem, disabled) {
-	if (elem.classList.contains("switch-onoff") || elem.classList.contains("clickbtn"))
+	if (elem.nodeName == "INPUT")
 		elem.disabled = disabled;
 	else
 		if (disabled)
@@ -201,7 +214,7 @@ function disableBtn(elem, disabled) {
 			elem.classList.remove("disabled");
 }
 function disableBtns(disable) {
-	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn,.submitbtn");
+	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn,.submitbtn,.submitbtn-send,.submitbtn-txt");
 	[].forEach.call(btns, function(elem) { disableBtn(elem, disable); } );
 }
 function resetAll() {
@@ -209,6 +222,7 @@ function resetAll() {
 	setBg("ctrl.pwr", '#777');
 	setBg("ecu.engine", '#777');
 	setBg("ecu.ready", '#777');
+	setBg("ctrl.sw_pressed", '#777');
 
     for (var i = 0; i < 8; i++)
         segShow("seg-" + String.fromCharCode(97 + i), 0);
@@ -271,31 +285,32 @@ function connect() {
 	pingTries = WS_MAX_PINGS; // remaining tries
 	recvdReply = false;  // set to true if current ping was replied
 
-	keepConn = setInterval( function() {
-		if (recvdReply) {
-			if (pingNr == 0)  // enable buttons on first ping reply
-				disableBtns(false);
-			pingNr++;
-			pingTries = WS_MAX_PINGS;
-			recvdReply = false;
-		} else if (pingTries <= 0) {
-			//console.log("ping-timeout");
-			setTxt("ackState", "Timeout (" + pingNr + ")");
-			disconnect();
-			return;
-		}
-		pingTries--;
-		setTxt("ackState", "Ping (" + pingNr + ")");
-		sendObj({'PING': pingNr});
-	}, WS_PING_INTERVAL);
-
 	ws.onopen = function() {
 		setTxt("ackState", "Verbunden");
 		disableBtns(false); // or enable buttons on open event
+
+        window.keepConn = setInterval( function() {
+            if (pingTries <= 0) {
+                //console.log("ping-timeout");
+                setTxt("ackState", "Timeout (" + pingNr + ")");
+                disconnect();
+                return;
+            }
+            if (recvdReply) {
+                if (pingNr == 0)  // enable buttons on first ping reply
+                    disableBtns(false);
+                pingNr++;
+                pingTries = WS_MAX_PINGS;
+                recvdReply = false;
+            }
+            pingTries--;
+            setTxt("ackState", "Ping (" + pingNr + ")");
+            sendObj({'PING': pingNr});
+        }, WS_PING_INTERVAL);
 	}
 
 	ws.onmessage = function(evt) {
-		//console.log(evt.data);
+		console.log(evt.data); // TODO
 		var jsonData = JSON.parse(evt.data);
 
 		if ('ACK' in jsonData) {
@@ -329,7 +344,8 @@ function connect() {
 							if (!cache.ctrl.pwr)
 								disableBtn($("ctrl.rly.ST"), false);  // motor won't start anyway so don't care about neutral
 							break;
-						case "sw_pressed":  // TODO
+						case "sw_pressed":
+							setBg("ctrl.sw_pressed", cache.ctrl.sw_pressed ? '#fc0' : '#a66');
 							break;
 						case "dot":
 						    segShow("seg-h", cache.ctrl.dot);
@@ -384,11 +400,11 @@ function connect() {
 	ws.onclose = disconnect;
 }
 function disconnect() {
-    clearInterval(keepConn);
+    clearInterval(window.keepConn);
     resetAll();
     setTxt("ackState", "Beendet");
     ws = null;
-    keepConn = null;
+    window.keepConn = null;
     setTimeout(connect, WS_RECONN_TIMEOUT); // auto-reconnect
 }
 

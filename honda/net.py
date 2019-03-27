@@ -19,6 +19,8 @@ _HTML_404 = "/404.html"  # None = unused
 _stay_on_for = 0  # chip is expected to remain on even if bike powered off for this time
 _stay_on_tmr = tms()  # in respect to this timer (set on network start)
 
+loop = get_event_loop()  # current event loop (same as in main())
+
 
 def read_cfg(key=None):  # key can be specified for a single entry, otherwise returns all data
     try:
@@ -152,7 +154,10 @@ class NetClient(WebSocketClient):
                     _stay_on_for = int(msg['VAL']) * 1000  # ms
                     _stay_on_tmr = tms()
                 elif cmd == "print":
-                    get_event_loop().create_task(self.obj['ctrl'].seg_print(msg["MSG"]))
+                    if len(loop.runq) >= 13 or len(loop.waitq) >= 13:  # length specified in get_event_loop(), def.: 16
+                        self.send(ALERT="Alle Ressourcen ausgeschöpft (%d,%d). Bitte warten!" % (len(loop.runq), len(loop.waitq)))
+                    else:
+                        loop.create_task(self.obj['ctrl'].seg_print(msg["MSG"]))
             # elif 'GET' in msg:  # client wants to get local variable(s)
             #     if not msg['GET']:  # empty string or None -> enquiring all cached data
             #         self.send(UPDATE=self.data)

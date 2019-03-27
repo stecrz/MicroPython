@@ -1,4 +1,5 @@
 from time import ticks_ms as tms, ticks_diff as tdiff
+from uasyncio import get_event_loop, sleep_ms as d
 from net import NetServer
 import urandom
 
@@ -63,11 +64,16 @@ class FakeECU(ECUBase):
             print("PWR", ctrl.pwr)
 
 
+_CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'G': 0x3D, 'H': 0x76, 'I': 0x30,
+              'J': 0x1E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E, 'Y': 0x6E,
+              'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'n': 0x54, 'o': 0x5C, 'q': 0x67,
+              'r': 0x50, 't': 0x78, 'u': 0x1C, '-': 0x40, ' ': 0x00, '0': 0x3F, '1': 0x06,
+              '2': 0x5B, '3': 0x4F, '4': 0x66, '5': 0x6D, '6': 0x7D, '7': 0x07, '8': 0x7F, '9': 0x6F}
 RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}
 class FakeControl:
     def __init__(self):
         self.pwr = True
-        self.sw_pressed = False
+        self.sw_pressed = True
         self.mode = 0
         self.rly = {k: False for k in RLY}
 
@@ -84,13 +90,31 @@ class FakeControl:
             print("RLY " + name + " TO " + str(val))
             self.rly[name] = val
 
-    def seg_print(self, msg, t=650):
-        print("PRINTING (in %.1fs) '%s'..." % (len(msg) * t / 1000, msg))
+    def seg_show(self, c):  # shows a single symbol (no dot) on the 7-seg
+        c = str(c)
+        if c == '.':
+            self.dot = 1
+        if c not in _CODE_CHAR:
+            c = c.lower() if c.isupper() else c.upper()
+            if c not in _CODE_CHAR:
+                c = ' '
+        self.pattern = _CODE_CHAR[c]
 
-    def dosth(self):
-        if tdiff(tms(), self._tmr) > 400:
-            self._tmr = tms()
-            self.seg_circle()
+    async def seg_print(self, msg, t=600, p=100):
+        print("PRINTING (in %.1fs) '%s'..." % (len(msg) * t / 1000, msg))
+        # Shows a text or number (could be negative or float)
+        # Each symbol will be shown for <t> ms, followed by a <p> ms pause (nothing displayed)
+        # The display will be cleared after displaying.
+        for c in str(msg):
+            self.seg_clear()
+            await d(p)
+            self.seg_show(c)
+            await d(t)
+        self.seg_clear()
+
+    def seg_clear(self):
+        self.pattern = 0
+        self.dot = 0
 
     def seg_circle(self, clockwise=False, invert=False):
         if clockwise:
@@ -108,22 +132,29 @@ class FakeControl:
             self.pattern = self._circle
 
 
+loop = get_event_loop()
 ecu = FakeECU()
 ctrl = FakeControl()
 net = NetServer()
 
-num_clients = 0
 
-net.start()
-print("NetServer started")
-try:
-    while True:
-        if net.client_count() != num_clients:
-            num_clients = net.client_count()
-            print("client count changed to " + str(num_clients))
-        net.process()  # update all clients and handle requests
-        # some other stuff:
-        ecu.update()
-        ctrl.dosth()
-finally:
-    net.stop()
+async def some_main_task():
+    num_clients = 0
+
+    net.start()
+    print("NetServer started")
+    try:
+        while True:
+            if net.client_count() != num_clients:
+                num_clients = net.client_count()
+                print("client count changed to " + str(num_clients))
+            net.process()  # update all clients and handle requests
+            # some other stuff:
+            ecu.update()
+            await d(20)  # for some test stuff
+    finally:
+        net.stop()
+
+
+loop.create_task(some_main_task())
+loop.run_forever()
