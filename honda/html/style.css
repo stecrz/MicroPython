@@ -370,7 +370,7 @@ h1 {
 }
 
 #popupInputs input {
-    font-size: 16px;
+    font-size: 15px;
 	display: block;
 	width: 100%;
     margin: 4px 0px;
@@ -382,7 +382,7 @@ h1 {
 }
 
 #popupCancel, #popupConfirm {
-    font-size: 16px;
+    font-size: 15px;
 	margin: 4px 0 3px 5px;
 	float: right;
 }
