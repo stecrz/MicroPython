@@ -77,7 +77,7 @@ _SHIFT_LIGHT_RPM_THRESH = 8000  # >= _ rpm -> shift light (for gear 1-5)
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms -> special mode 1 (additional _ ms -> mode 2, 3, ...)
 _SW_BL_FLASH_COUNT = 8  # flash break light _ times when pressed
 _SW_PWRUP_TIMEOUT = 7000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
-_NET_DEFAULT_ONTIME = 15  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
+_NET_DEFAULT_ONTIME = 30  # minutes if mode is 0; otherwise network remains active for <mode> h (BLF switch held on SD)
 _DRIVING_SPEED_THRESH = 5  # assume waiting (or revving if throttle is used) if speed <= _ km/h
 
 UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate doesn't matter
@@ -149,11 +149,11 @@ async def task_sw_mode():  # reacts to switch state changes (eg by mode change),
                 sw_tmr = tms()  # set timer to check duration later
                 if ctrl.mode != 0:  # switch pressed while in special mode
                     ctrl.mode = -ctrl.mode  # to reset from any special mode to mode 0
-                    ctrl.led_g(1)
+                    ctrl.led_y(1)
             else:  # just released -> apply mode now
                 if ctrl.mode < 0:
                     ctrl.mode = 0  # reset to mode 0 without break light flashing
-                    ctrl.led_g(0)
+                    ctrl.led_y(0)
                 elif ctrl.mode == 0:
                     for _ in range(_SW_BL_FLASH_COUNT):
                         ctrl.set_rly('BL', True)
@@ -180,7 +180,7 @@ async def task_sw_mode():  # reacts to switch state changes (eg by mode change),
                 elif ctrl.mode == 3:
                     async def task_mode_laptime():  # timer for special mode 0-100 km/h measurement
                         lap_tmr = tms()
-                        ctrl.led_y(1)
+                        ctrl.led_g(1)
                         led_tmr = tms()  # for blinking led
 
                         while ctrl.mode == 3 and ecu.ready:
@@ -191,15 +191,15 @@ async def task_sw_mode():  # reacts to switch state changes (eg by mode change),
                                     if tdiff(tms(), led_tmr) >= 200:  # blink LED while standing
                                         led_tmr = tms()
                                         led = not led
-                                        ctrl.led_y(led)
+                                        ctrl.led_g(led)
                                     await d(0)
-                                ctrl.led_y(1)
+                                ctrl.led_g(1)
                             elif ecu.speed >= 100:
                                 lap_time = round(tdiff(tms(), lap_tmr) / 1000, 1)  # e.g. 15.8 for 15762 ms
 
                                 ctrl.seg_clear()
                                 for _ in range(10):  # blink _ times
-                                    await blink(ctrl.led_y, 100, 100)
+                                    await blink(ctrl.led_g, 100, 100)
                                 await d(1000)
 
                                 await ctrl.seg_print(lap_time)
@@ -209,7 +209,7 @@ async def task_sw_mode():  # reacts to switch state changes (eg by mode change),
 
                             await d(0)  # let ECU work
 
-                        ctrl.led_y(0)
+                        ctrl.led_g(0)
                     loop.create_task(task_mode_laptime())
                 elif ctrl.mode == 7:  # activate network if not active (no min active time -> until pwrdown)
                     start_net(0)  # already running? just change stayon time to "until poweroff"
@@ -222,13 +222,13 @@ async def task_sw_mode():  # reacts to switch state changes (eg by mode change),
         elif ctrl.sw_pressed and ctrl.mode >= 0 and tdiff(tms(), sw_tmr) >= _SW_HOLD_THRESH:  # held down (special mode)
             ctrl.mode += 1
             sw_tmr = tms()  # for next special mode
-            ctrl.led_g(1)
+            ctrl.led_y(1)
             if ctrl.mode >= 10:
                 ctrl.seg_show(ctrl.mode // 10 % 10)
                 sleep_ms(250)
             ctrl.seg_show(ctrl.mode % 10)
             sleep_ms(150)
-            ctrl.led_g(0)
+            ctrl.led_y(0)
             continue  # don't let ECU or cockpit work, as increasing mode is non interruptable
 
         await d(0)  # let ECU and gear indiciator work
