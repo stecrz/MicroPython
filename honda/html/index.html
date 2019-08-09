@@ -31,20 +31,20 @@
 				<td>Strom:</td>
 				<td>
 					<div class="switch">
-						<input id="ctrl.rly.IG" type="checkbox" class="switch-onoff">
-						<label for="ctrl.rly.IG" class="switch-label">
+						<input id="io.rly.IG" type="checkbox" class="switch-onoff">
+						<label for="io.rly.IG" class="switch-label">
 							<span class="switch-inner"></span>
 							<span class="switch-nib"></span>
 						</label>
 					</div>
 					<span class="circle-spacer"></span>
-					<span class="circle" id="ctrl.pwr"></span>
+					<span class="circle" id="io.pwr"></span>
 				</td>
 			</tr>
 			<tr>
 				<td>Motor:</td>
 				<td>
-					<span id="ctrl.rly.ST" style="float:left;" class="holdbtn">START</span>
+					<span id="io.rly.ST" style="float:left;" class="holdbtn">START</span>
 					<span class="circle-spacer"></span>
 					<span class="circle" id="ecu.engine"></span>
 				</td>
@@ -53,8 +53,8 @@
 				<td>Bremslicht:</td>
 				<td>
 					<div class="switch">
-						<input id="ctrl.rly.BL" type="checkbox" class="switch-onoff">
-						<label for="ctrl.rly.BL" class="switch-label">
+						<input id="io.rly.BL" type="checkbox" class="switch-onoff">
+						<label for="io.rly.BL" class="switch-label">
 							<span class="switch-inner"></span>
 							<span class="switch-nib"></span>
 						</label>
@@ -65,8 +65,8 @@
 				<td>LEDs:</td>
 				<td>
 					<div class="switch">
-						<input id="ctrl.rly.LED" type="checkbox" class="switch-onoff">
-						<label for="ctrl.rly.LED" class="switch-label">
+						<input id="io.rly.LED" type="checkbox" class="switch-onoff">
+						<label for="io.rly.LED" class="switch-label">
 							<span class="switch-inner"></span>
 							<span class="switch-nib"></span>
 						</label>
@@ -75,7 +75,7 @@
 			</tr>
 			<tr>
 				<td>Hupe:</td>
-				<td><span id="ctrl.rly.HO" class="holdbtn">HUPE</span></td>
+				<td><span id="io.rly.HO" class="holdbtn">HUPE</span></td>
 			</tr>
 		</table>
 
@@ -87,8 +87,9 @@
 		<table class="ecu">
 			<tr>
 				<td>Batterie:</td>
-				<td colspan="2"><span id="ecu.bat">~&nbsp;</span> V</td>
-				<td><div id="ctrl.mode" class="inputbtn clickable-framed-txt">~</div></td>
+				<!-- <td colspan="2"><span id="ecu.bat">~&nbsp;</span> V</td>
+				<td><div id="io.mode" class="inputbtn clickable-framed-txt">~</div></td> -->
+				<td colspan="3"><span id="ecu.bat">~&nbsp;</span> V</td>
 			</tr>
 			<tr>
 				<td>Drehzahl:</td>
@@ -131,18 +132,14 @@
 				<td>Ständer:</td>
 				<td colspan="3"><span id="ecu.sidestand">~&nbsp;</span></td>
 			</tr>
-			<tr>
-				<td>Einspritzzeit:</td>
-				<td><span id="ecu.fuelInjTime">~&nbsp;</span></td>
-				<td colspan="2" style="text-align:center;">tbd</td>
-			</tr>
 		</table>
 
 		<div class="headline">Anzeige
 			<span class="circle-headertxt">&nbsp;BLFS: </span>
-			<span class="circle" id="ctrl.sw_pressed"></span>
+			<span class="circle" id="io.sw_pressed"></span>
 		</div>
 
+		<!--
 		<div class="segment-display">
 			<div id="seg-a" class="seg-x"><div class="seg-edge"></div></div>
 			<div id="seg-b" class="seg-y"><div class="seg-edge"></div></div>
@@ -159,6 +156,7 @@
 				   pattern="[a-jln-uyA-JLN-UY0-9._ -]*" title="Buchstaben (ohne KMVWXZ), Zahlen, ., -, _, Leerzeichen">
 			<input id="print" type="submit" class="submitbtn-send" value="&#8618;&#xFE0E;">
 		</form>
+		-->
 
 		<div class="headline">System</div>
 

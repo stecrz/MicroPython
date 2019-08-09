@@ -4,7 +4,7 @@
 from utime import sleep_ms
 
 
-def deepsleep():  # TODO >71min sleep possible?
+def deepsleep():
     # import machine
     # rtc = machine.RTC()
     # rtc.irq(trigger=rtc.ALARM0, wake=machine.DEEPSLEEP)
@@ -13,7 +13,6 @@ def deepsleep():  # TODO >71min sleep possible?
     # new version:
     import esp
     esp.deepsleep(500)  # possible to wake up after ... ms
-
 
 
 def setup_motion_switch(spi, cs, freq=25, thresh_act=200, samp_act=200, thresh_inact=120, samp_inact=20, mrange=2):

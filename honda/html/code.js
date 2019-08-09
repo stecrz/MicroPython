@@ -67,21 +67,23 @@ function popup(msg, confirmHandler=null, inputPhs=[], timeout=0) {
 
 
 
-setupBtn("ctrl.rly.IG");
-setupBtn("ctrl.rly.BL");
-setupBtn("ctrl.rly.ST");
-setupBtn("ctrl.rly.HO");
-setupBtn("ctrl.rly.LED");
+setupBtn("io.rly.IG");
+setupBtn("io.rly.BL");
+setupBtn("io.rly.ST");
+setupBtn("io.rly.HO");
+setupBtn("io.rly.LED");
 setupBtn("reboot", 	"Der Chip wird über einen <b>Soft-Reset</b> zurückgesetzt. Das Netzwerk-Interface wird anschließend reaktiviert.", true);
-setupBtn("deepsleep", "<b>Warnung:</b> Der Chip wird in den <b>Deepsleep</b>-Modus versetzt.", true);
-setupBtn("console", "<b>Warnung:</b> Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen.", true);
+setupBtn("deepsleep", "<b>Hinweis:</b> Der Chip wird in den <b>Deepsleep</b>-Modus versetzt.", true);
+setupBtn("console", "<b>WARNUNG:</b> Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen (Hard-Reset zur Wiederherstellung).", true);
 setupBtn("ifconfig");
 setupBtn("netls");
 setupBtnNetwork("netadd", "Neue Netzwerkverbindung hinzufügen (bzw. Passwort ändern):", "SSID", "Sicherheitsschlüssel");
 setupBtnNetwork("netrm", "Zu löschendes Netzwerk eingeben:", "SSID");
-setupTxtMode("ctrl.mode");
 setupTxtTimer("nettime");
+/*
+setupTxtMode("io.view");
 setupBtnPrint();
+*/
 
 resetAll();  // initial setup
 
@@ -147,6 +149,7 @@ function setupBtnNetwork(id, msg, hintId, hintPw=null) {
 	}
 	elem.ontouchstart = function(){};  // to show :active state
 }
+/*
 function setupTxtMode(id) {
 	var elem = $(id);
 	elem.onclick = function(evt) {
@@ -157,10 +160,10 @@ function setupTxtMode(id) {
                     sendVar(id, val);
                 else
                     popup("Ungültige Eingabe!");
-            }, [cache.ctrl.mode]);
+            }, [cache.io.mode]);
 		}
 	}
-}
+}*/
 function setupTxtTimer(id) {
 	var elem = $(id);
 	elem.onclick = function(evt) {
@@ -181,6 +184,7 @@ function setupTxtTimer(id) {
 		}
 	}
 }
+/*
 function setupBtnPrint() {
     var elem = $("print");  // the real send button
     var form = $("segform");  // surrounding form containing input + btn
@@ -203,6 +207,7 @@ function setupBtnPrint() {
         return false;
     }
 }
+*/
 
 function disableBtn(elem, disabled) {
 	if (elem.nodeName == "INPUT")
@@ -219,13 +224,13 @@ function disableBtns(disable) {
 }
 function resetAll() {
 	disableBtns(true);
-	setBg("ctrl.pwr", '#777');
+	setBg("io.pwr", '#777');
 	setBg("ecu.engine", '#777');
 	setBg("ecu.ready", '#777');
-	setBg("ctrl.sw_pressed", '#777');
+	setBg("io.sw_pressed", '#777');
 
-    for (var i = 0; i < 8; i++)
-        segShow("seg-" + String.fromCharCode(97 + i), 0);
+    // for (var i = 0; i < 8; i++)
+    //     segShow("seg-" + String.fromCharCode(97 + i), 0);
 
 	// cached variables cleared on screen:
 	if (cache != null) {
@@ -262,12 +267,13 @@ function setTxt(id, value) {
 function setBg(id, color) {
 	$(id).style.backgroundColor = color;
 }
+/*
 function segShow(segId, active) {
     if (active)
         $(segId).classList.add("seg-show");
     else
         $(segId).classList.remove("seg-show");
-}
+}*/
 
 function sendObj(dictObj) {
 	console.log(JSON.stringify(dictObj));
@@ -331,32 +337,34 @@ function connect() {
 
 			// check the differences:
 
-			if ("ctrl" in jsonData.UPD) {
-				for (var attr in jsonData.UPD.ctrl) {
+			if ("io" in jsonData.UPD) {
+				for (var attr in jsonData.UPD.io) {
 					switch (attr) {
 						case "rly":
-							for (var rlyName in jsonData.UPD.ctrl.rly) {
-								setBtnPrssd($("ctrl.rly." + rlyName), cache.ctrl.rly[rlyName]);
+							for (var rlyName in jsonData.UPD.io.rly) {
+								setBtnPrssd($("io.rly." + rlyName), cache.io.rly[rlyName]);
 							}
 							break;
 						case "pwr":
-							setBg("ctrl.pwr", cache.ctrl.pwr ? '#393' : '#d00');
-							if (!cache.ctrl.pwr)
-								disableBtn($("ctrl.rly.ST"), false);  // motor won't start anyway so don't care about neutral
+							setBg("io.pwr", cache.io.pwr ? '#393' : '#d00');
+							if (!cache.io.pwr)
+								disableBtn($("io.rly.ST"), false);  // motor won't start anyway so don't care about neutral
 							break;
 						case "sw_pressed":
-							setBg("ctrl.sw_pressed", cache.ctrl.sw_pressed ? '#fc0' : '#a66');
+							setBg("io.sw_pressed", cache.io.sw_pressed ? '#fc0' : '#a66');
 							break;
+						/*
 						case "dot":
-						    segShow("seg-h", cache.ctrl.dot);
+						    segShow("seg-h", cache.io.dot);
 						    break;
 						case "pattern":
 						    for (var i = 0; i < 7; i++)
-						        segShow("seg-" + String.fromCharCode(97 + i), cache.ctrl.pattern & (1 << i));
+						        segShow("seg-" + String.fromCharCode(97 + i), cache.io.pattern & (1 << i));
 						    break;
 						case "mode":
-							setTxt('ctrl.mode', cache.ctrl.mode);
+							setTxt('io.mode', cache.io.mode);
 							break;
+						*/
 					}
 				}
 			}
@@ -369,7 +377,7 @@ function connect() {
 							setBg("ecu.ready", cache.ecu.connecting ? '#f93' : (cache.ecu.ready ? '#393' : '#d00'));
 							break;
 						case "idle":
-							disableBtn($("ctrl.rly.ST"), !cache.ecu.idle || !("engine" in cache.ecu) || cache.ecu.engine);
+							disableBtn($("io.rly.ST"), !cache.ecu.idle || !("engine" in cache.ecu) || cache.ecu.engine);
 							if (cache.ecu.idle)
 								setTxt("ecu.gear", 'N');
 							break;
@@ -378,7 +386,7 @@ function connect() {
 												  (cache.ecu.sidestand ? '\u2713' : '\u2715'));
 							break;
 						case "engine":
-							disableBtn($("ctrl.rly.ST"), !cache.ecu.idle || cache.ecu.engine);
+							disableBtn($("io.rly.ST"), !cache.ecu.idle || cache.ecu.engine);
 							setBg("ecu.engine", cache.ecu.engine ? '#393' : '#d00');
 							break;
 						case "gear":

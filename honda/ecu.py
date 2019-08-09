@@ -167,7 +167,7 @@ class HondaECU:
 # I am using thresholds, so e.g.: ratio > {ratio between 1 and 2} => gear 1
 # higher threshold = next gear indicated later; lower threshold = previous gear skipped earlier
 # (alt.: approximated formula: 2736.8 * x^-1.577)
-_GEAR_RATIO_THRESH = (400, 120, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 1,2,3,4,5,6 (above first = neutral)
+_GEAR_RATIO_THRESH = (400, 119, 85, 67.5, 57.5, 51.8)  # highest ratio for gear 1,2,3,4,5,6 (above first = neutral)
 
 
 class CBR500Sniffer(HondaECU):
@@ -199,7 +199,6 @@ class CBR500Sniffer(HondaECU):
         self.map_v = 0      # +- MAP sensor voltage
         self.bat = 0        # battery voltage
         self.speed = 0      # VS sensor (km/h)
-        self.fuelInjTime = 0  # TODO probably fuel injection duration (ms?)
         self.sidestand = None  # driving/parking state: True = kickstand used, False = unused, None = not calculable
         self.engine = False  # running?
         self.idle = True  # True = engine is idling or STARTABLE (clutch pulled and/or neutral (no gear))
@@ -256,8 +255,8 @@ class CBR500Sniffer(HondaECU):
             elif reg == 13:
                 self.speed = val
                 self._calc_gear()
-            elif reg == 14 or reg == 15:
-                self.fuelInjTime = (self._regMap[tab][14] << 8) + self._regMap[tab][15]
+            # elif reg == 14 or reg == 15:
+            #     self.fuelInjTime = (self._regMap[tab][14] << 8) + self._regMap[tab][15]
 
             # TODO missing:
             # - 14/15?: fuel injector 1 & 2: injection timing

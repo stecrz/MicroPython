@@ -8,7 +8,7 @@ import network
 
 
 _CONFIG_FILE = "netconf.json"  # this file must contain, hosname, password, known networks, port (...)
-_OBJS = ('ecu', 'ctrl')  # all non-private vars in these objects will be monitored and sent to clients on update
+_OBJS = ('ecu', 'io')  # all non-private vars in these objects will be monitored and sent to clients on update
 _WS_INACT_TO = 14  # client is closed when no message (incl PING!) received for _ s (>= WS_SYN_INTERVAL)
                    # don't use too small value, as cient will not send PING message if JS alert is displayed
 _AP_CONF = ('192.168.0.1', '255.255.255.0', '192.168.0.1', '')  # ip, subnet, gateway, dns
@@ -157,7 +157,10 @@ class NetClient(WebSocketClient):
                     if len(loop.runq) >= 13 or len(loop.waitq) >= 13:  # length specified in get_event_loop(), def.: 16
                         self.send(ALERT="Alle Ressourcen ausgeschöpft (%d,%d). Bitte warten!" % (len(loop.runq), len(loop.waitq)))
                     else:
-                        loop.create_task(self.obj['ctrl'].seg_print(msg["MSG"]))
+                        # loop.create_task(self.obj['io'].seg_print(msg["MSG"]))
+                        self.obj['io'].oled.clear()
+                        self.obj['io'].oled.text(msg["MSG"])
+                        self.obj['io'].oled.show()
             # elif 'GET' in msg:  # client wants to get local variable(s)
             #     if not msg['GET']:  # empty string or None -> enquiring all cached data
             #         self.send(UPDATE=self.data)
@@ -238,7 +241,7 @@ class NetClient(WebSocketClient):
             varls = (varls,)
         elif isinstance(varls, list):
             varls = tuple(varls)
-        if not isinstance(varls, tuple) or len(varls) <= 1:  # cannot set whole local var like 'ecu' or 'ctrl'
+        if not isinstance(varls, tuple) or len(varls) <= 1:  # cannot set whole local var like 'ecu' or 'io'
             return
 
         try:  # first check if variable exists
@@ -250,18 +253,12 @@ class NetClient(WebSocketClient):
         if varls[-1] not in data:
             return
 
-        # now do the real job (hard coded); data is reference to the main object like ecu or ctrl:
-        if varls[0] == 'ctrl':
+        # now do the real job (hard coded); data is reference to the main object like ecu or io:
+        if varls[0] == 'io':
             if varls[1] == 'rly':
                 # first perform local update of cached data (not req., but prevents unnecessary update()-call)
                 data[varls[-1]] = val  # update local data
                 self.obj[varls[0]].set_rly(varls[-1], val)
-            elif varls[1] == 'mode':  # no local update here to make sure user sees whether change was successful
-                if isinstance(val, int):
-                    self.obj[varls[0]].mode = val
-                    # to apply the mode as if the switch was released, we need to set switch state to pressed
-                    # -> main code will find out that switch is not pressed any more and assume we have released it
-                    self.obj[varls[0]].sw_pressed = True
 
 
 class NetServer(WebSocketServer):
@@ -334,8 +331,6 @@ class NetServer(WebSocketServer):
                 else:  # no matching network found
                     sta.active(False)
 
-        #print(sta.ifconfig())
-
     def _set_ap(self):
         ap = network.WLAN(network.AP_IF)
         ap.active(self.active)
@@ -343,5 +338,3 @@ class NetServer(WebSocketServer):
         if self.active:
             ap.config(essid=self._name, password=self._pw)
             ap.ifconfig(_AP_CONF)
-
-        #print(ap.ifconfig())

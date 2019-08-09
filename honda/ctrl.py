@@ -1,189 +1,249 @@
 # MODULE FOR IO
 from mcp23017 import MCP23017
+from ssd1306_vert import SSD1306_I2C
 from machine import Pin, I2C
-from uasyncio import sleep_ms as d
 import utime
-
-
-async def blink(outfun, d1=150, d2=0):  # coro to indicate activity
-    # Blinks one of the LEDs or the dot segment by turning it on for <d1> ms followed by
-    # turning it off for <d2> m2. Simply pass the switch function <outfun>, which turns
-    # the LED on by passing param 1 and off by param 0.
-    outfun(1)
-    await d(d1)  # await asyncio.sleep_ms(d1)
-    outfun(0)
-    if d2:
-        await d(d2)
+from uasyncio import CancelledError, sleep_ms as d
+import framebuf
 
 
 _SCL = 5
 _SDA = 4
 
-_ADDR_MCP1 = 0x22
-_LED_G = 11
-_LED_Y = 8
-_BUZZER = 14  # TODO
+_ADDR_MCP = 0x24
 
-# binary codes for for 7 segment output h (MSB) to a (LSB), 1 meaning active
-_CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'G': 0x3D, 'H': 0x76, 'I': 0x30,
-              'J': 0x1E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E, 'Y': 0x6E,
-              'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'n': 0x54, 'o': 0x5C, 'q': 0x67,
-              'r': 0x50, 't': 0x78, 'u': 0x1C, '-': 0x40, ' ': 0x00, '0': 0x3F, '1': 0x06,
-              '2': 0x5B, '3': 0x4F, '4': 0x66, '5': 0x6D, '6': 0x7D, '7': 0x07, '8': 0x7F, '9': 0x6F}
-# impossible chars: K, M, V, W, X, Z
-
-_ADDR_MCP2 = 0x24
-_IN_SWITCH_BLF = 8  # input pin for break light flash switch pin on MCP
+_RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}  # MCP output pins for relays
+_LED_G = 11   # green LED output pin
+_LED_B = 12   # blue LED output pin
+_BUZZER = 13  # buzzer output pin
+_IN_SWITCH_BLF = 8  # input pin for brake light flash switch pin on MCP
 _IN_PWR = 10  # input pin for powered status of the bike
+_IN_TEST = 9  # test input button on mini board, can be used instead of BLF switch on bike for testing
 
-# MCP output pins for relays (for class user; using constants internally!):
-_RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}
+
+async def blink(outfun, d1=150, d2=0, startval=1):
+    # Calls <outfun> with value 1 and rests for <d1> ms, then calls with value 0 and rests for <d2> ms
+    # if <startval> is 1. Otherwise (if <startval> is 0), <outfun> will be called with param 0 first.
+    try:
+        outfun(startval)
+        await d(d1)
+        outfun(1-startval)
+    except CancelledError:  # make sure this coro always ends in the same state, even if task cancelled inbetween
+        outfun(1-startval)
+        return
+    if d2:
+        await d(d2)
+
+
+class OLED(SSD1306_I2C):
+    # Vertical OLED with possibility to blit an image or text using PBM files (without lines 1/2).
+    # Note that attribute width saves height and attribute height stores width; use attributes w and h instead!
+
+    _CHRS = {  # special chars unsupported by OS filenames
+        ':': "COL", '.': "DOT", '?': "QM", '°': "DEG", '<': "LT", '>': "GT",
+        '/': "SLH", "'": "QT", '&': "AND", 'ß': "SS"
+    }
+    _DIR_CHRS = "img/chr/"
+    _DIR_IMGS = "img/ico/"
+
+    def __init__(self, w, h, i2c):
+        super().__init__(w, h, i2c, vertical=True)
+        self.w = w
+        self.h = h
+
+    def clear(self):
+        self.fill(0)
+        self.show()
+
+    def _align(self, x, y, w, h, xo, yo):
+        if x is None:
+            x = self.w / 2 - w / 2
+        if y is None:
+            y = self.h / 2 - h / 2
+        return int(x + xo), int(y + yo)
+
+    # Displays an image given as PBM file without header lines (must contain data only!).
+    # - fn = the image name without '.pbm' ending and without 'img/' (but incl subdir).
+    # - x/y = top-left coords (not given means centered horizontally/vertically on display)
+    # - w/h = image width/height (use original resolution saved in line 3 if w/h not given)
+    # - hoff/voff = additional offset added to x/y coord
+    # Returns the blitted area (x, y, w, h)
+    def img(self, fn, x=None, y=None, w=None, h=None, hoff=0, voff=0):
+        with open(OLED._DIR_IMGS + fn, 'rb') as f:
+            wh = f.readline().strip().split()
+
+            if w is None:
+                w = int(wh[0])
+            if h is None:
+                h = int(wh[1])
+            x, y = self._align(x, y, w, h, hoff, voff)
+
+            data = bytearray(f.read())
+            self.blit(framebuf.FrameBuffer(data, w, h, framebuf.MONO_HLSB), x, y)
+            return x, y, w, h
+
+    def power(self, state):  # turns the OLED on/off
+        if state:
+            self.poweron()
+        else:
+            self.poweroff()
+
+    @staticmethod
+    def load_chr(c, size):  # -> (w, h, data)
+        if c == ' ':
+            return 2 if size == 12 else 4, 0, b''
+
+        fn = OLED._DIR_CHRS + str(size) + '_'
+        if 'A' <= c <= 'Z':
+            fn += 'U_'
+        elif 'a' <= c <= 'z':
+            fn += 'L_'
+            c = c.upper()
+        elif c in OLED._CHRS:  # there are other spec chars as well
+            c = OLED._CHRS[c]
+        fn += c
+
+        try:
+            with open(fn, 'rb') as f:
+                wh = f.readline().strip().split()
+                return int(wh[0]), int(wh[1]), bytearray(f.read())
+        except OSError:  # failed to load, probably unsupported letter
+            return 2 if size == 12 else 4, 0, b''  # space
+
+    @staticmethod
+    def prefetch_chrs(s, size):
+        return {c: OLED.load_chr(c, size) for c in s}
+
+    # Displays the given text on the oled using graphics from 'chr' folder at the given coords (overlay, clear before!).
+    # - x/y = top-left coords (not given means centered horizontally/vertically on display)
+    # - hoff/voff = additional offset added to x/y coord (if you dont want to specify x/y, but move from center instead)
+    # - hspace = horizontal spacing between chars (pixels)
+    # - lspace = line distance (like in Word, e.g. 1.5 = 150% = half line space)
+    # - align: 'j' = justify, 'c' = center, 'l' = left
+    # - size = 12 or 50, see chr folder (not the real font size!)
+    # - autobreak: if set to True, a linebreak will be inserted automatically whenever a line doesn't fit on the screen
+    # - scroll: scroll old content up, clear lower area, blit text -> y will be set automatically
+    # - buf: Normally chars will be fetched freshly each time to use as less RAM as possible. If you have enough RAM and
+    #        you will use the same chars in multiple blit calls, you can prefetch them once will prefetch_chrs method.
+    # Returns the blitted area (x, y, w, h)
+    def text(self, txt, x=None, y=None, hoff=0, voff=0, hspace=1, lspace=1.0, align='c', size=12, autobreak=False, scroll=False, buf=None):
+        lines = [[]]
+        lwidth = [0]
+
+        for c in txt:
+            cbuf = None if c == '\n' else buf[c] if buf is not None and c in buf else OLED.load_chr(c, size)
+            if c == '\n' or lwidth[-1] + cbuf[0] > self.w and autobreak:
+                if lwidth[-1] > 0:
+                    lwidth[-1] -= hspace  # remove last hspace
+                lines.append([])
+                lwidth.append(0)
+            if c != '\n':
+                lines[-1].append(cbuf)
+                lwidth[-1] += cbuf[0] + hspace
+        if lwidth[-1] > 0:
+            lwidth[-1] -= hspace
+
+        lheight = round(max(max(d[1] for d in l) for l in lines) * lspace)
+
+        W = max(lwidth)
+        H = lheight * len(lines)
+        x, y = self._align(x, y, W, H, hoff, voff)
+        if scroll:
+            hscroll = H + 1
+            self.scroll(0, -hscroll)
+            self.fill_rect(0, self.h-hscroll, self.w, hscroll, 0)
+            y = self.h - H
+
+        for i in range(len(lines)):
+            hs = hspace
+            xi = x
+            if align == 'j' and len(lines[i]) > 1:  # fit by increasing hspace
+                hs += (W - lwidth[i]) / (len(lines[i]) - 1)
+            elif align == 'c':
+                xi += (W - lwidth[i]) / 2
+
+            for w, h, b in lines[i]:
+                if h > 0:
+                    self.blit(framebuf.FrameBuffer(b, w, h, framebuf.MONO_HLSB), int(xi), y + lheight * i, 0)
+                xi += w + hs
+
+        return x, y, W, H
+
+    def big(self, num, **kw):  # blit txt with large font
+        return self.text(str(num), size=50, hspace=3, **kw)
+
+    def println(self, txt):  # just calls text with setting for debug printing
+        self.text(txt, x=0, size=12, align='l', autobreak=True, scroll=True)
+        self.show()
 
 
 class IOControl:
-    # This class handles the cockpit (7 segment display, green and yellow LED), the relay backpack,
+    # This class handles the cockpit (oled display, green and blue LED), the relay backpack,
     # input button and power status input.
-    # The 7 segment display must be connected to the MCP on pins GPA0 (a) to GPA7 (h).
 
     def __init__(self):
         i2c = I2C(-1, Pin(_SCL), Pin(_SDA))
 
-        self._mcp1 = MCP23017(i2c, _ADDR_MCP1, def_inp=0, def_val=1)  # all outputs, all high
-        # for pin in range(8):
-        #     self._mcp1.decl_output(pin)
-        # self._mcp1.decl_output(OutputController._LED_Y)
-        # self._mcp1.decl_output(OutputController._LED_G)
-
-        self._mcp2 = MCP23017(i2c, _ADDR_MCP2, def_inp=0, def_val=0)  # default outputs, all low (no pullups)
-        for pin in range(len(_RLY)):  # reset relay outputs (off)
-            self._mcp2.decl_output(pin)
-            self._mcp2.output(pin, 0)
-        self._mcp2.decl_input(_IN_SWITCH_BLF)  # switch input
-        self._mcp2.pullup(_IN_SWITCH_BLF, True)  # additional pullup (also there is the 82k pullup)
-        self._mcp2.decl_input(_IN_PWR)  # powered status input
-
-        self.dot = 0  # dot currently lighted? (read-only from outside this class)
-        self.pattern = 0  # currently displayed segment pattern (without dot) (read-only from outside this class)
-        self._circle = 1  # lighting pattern of circle if used (1, 2, 4, 8, 16, 32, 1, 2, ...)
+        # declare MCP output/inputs:
+        self._mcp = MCP23017(i2c, _ADDR_MCP, def_inp=0, def_val=0)  # default output, all low (no pullups)
+        for pin in list(_RLY.values()) + [_LED_G, _LED_B, _BUZZER]:
+            self._mcp.decl_output(pin)
+        self._mcp.decl_input(_IN_SWITCH_BLF)
+        self._mcp.pullup(_IN_SWITCH_BLF, True)  # additional pullup, default low
+        self._mcp.decl_input(_IN_PWR)
+        self._mcp.decl_input(_IN_TEST)
+        self._mcp.pullup(_IN_TEST, True)  # additional pullup, default high!
 
         # last read states:
         self.pwr = None
         self.sw_pressed = None  # last switch state (from recent check): down?
-
-        # 0 = normal, 1/2/3/... = special modes (after holding switch down), (-x = reset from special mode)
-        # special modes: 1 = 0-100 km/h measurement
-        #                on shutdown: mode = 1-9: network control stays on for <mode> hours
-        #                             mode >= 10: return to console (hard reset required for normal operation)
-        self.mode = 0
         self.rly = {k: False for k in _RLY}  # current relais states (last set)
 
+        self.oled = OLED(64, 128, i2c)
         self.off()
 
     def clear(self):
         self.pwr = False
         self.sw_pressed = False
-        self.seg_clear()
-        self.led_y(0)
+        self.oled.clear()
+        self.led_b(0)
         self.led_g(0)
 
     def off(self):  # turns off all outputs
         self.clear()
-        self._mcp1.output(_BUZZER, 0)
-        for rly in range(len(_RLY)):
-            self._mcp2.output(rly, 0)
-
-    def seg_dot(self, val=None):
-        # Turns the 7-segment dot on/off; 1 = on, 0 = off, None = switch; does not affect pattern
-        self.dot = val if val is not None else not self.dot
-        self._mcp1.output(7, not self.dot)
-
-    def seg_clear(self):  # turns the seven segment display off
-        self._seg_pattern(0)
-        self.seg_dot(0)
-
-    def seg_show(self, c):  # shows a single symbol on the 7-seg
-        c = str(c)
-        if c == '.':
-            self.seg_dot(1)  # seg_pattern will clear the rest
-        if c not in _CODE_CHAR:
-            c = c.lower() if c.isupper() else c.upper()
-            if c not in _CODE_CHAR:
-                c = ' '
-        self._seg_pattern(_CODE_CHAR[c])
-
-    async def seg_print(self, msg, t=600, p=100):
-        # Shows a text or number (could be negative or float)
-        # Each symbol will be shown for <t> ms, followed by a <p> ms pause (nothing displayed)
-        # The display will be cleared after displaying.
-        for c in str(msg):
-            self.seg_clear()
-            await d(p)
-            self.seg_show(c)
-            await d(t)
-        self.seg_clear()
-
-    def _seg_pattern(self, bits):
-        # Shows the binary pattern <bits> on the 7 segment display where 1 means on.
-        # E.g. 0b0000101 lights up pin C and A. For dot please use seg_dot().
-        self.pattern = bits
-        pins = {}  # maps pins (0-6) to a val, where True means OFF (double positive) and False means ON
-        for i in range(7):
-            pins[i] = not (bits & 1)  # get i-th bit and invert it so that finally True means ON again (for the user)
-            bits >>= 1
-        self._mcp1.output_pins(pins)
-
-    def seg_circle(self, clockwise=False, invert=False):
-        # invert: False = only one segment is displayed, True: all segments apart from one displayed
-        # clockwise: direction of movement
-
-        if clockwise:
-            self._circle <<= 1
-            if self._circle >= 0b1000000:  # would be middle seg -
-                self._circle = 1
-        else:
-            self._circle >>= 1
-            if self._circle == 0:
-                self._circle = 0b100000
-
-        if invert:
-            self._seg_pattern(self._circle ^ 0x3F)
-        else:
-            self._seg_pattern(self._circle)
-
-    async def seg_flash(self, pause):
-        pttrn = self.pattern  # currently displayed num/char
-        self.seg_clear()
-        await d(pause)
-        self._seg_pattern(pttrn)
-        await d(pause)
+        self._mcp.output(_BUZZER, 0)
+        for rly in _RLY.values():
+            self._mcp.output(rly, 0)
 
     def led_g(self, val):  # turns green LED on/off; 1 = on, 0 = off
-        self._mcp1.output(_LED_G, not val)
+        self._mcp.output(_LED_G, val)
 
-    def led_y(self, val):  # turns yellow LED on/off; 1 = on, 0 = off
-        self._mcp1.output(_LED_Y, not val)
+    def led_b(self, val):
+        self._mcp.output(_LED_B, val)
 
-    def set_rly(self, name, val):
-        # turns relay name (HO, BL, ST, IG, LED) on/off if <val> is True/False (1/0)
+    def set_rly(self, name, val):  # turns relay name (HO, BL, ST, IG, LED) on/off if <val> is True/False (1/0)
         if not isinstance(val, bool) or name not in self.rly:
             return
         if val != self.rly[name]:
             self.rly[name] = val
-            self._mcp2.output(_RLY[name], val)
+            self._mcp.output(_RLY[name], val)
 
-    def switch_pressed(self):  # returns True if the switch is pressed and False if it is not
-        self.sw_pressed = self._mcp2.input(_IN_SWITCH_BLF)
+    def switch_pressed(self, test=False):  # returns True if the switch is pressed
+        self.sw_pressed = self._mcp.input(_IN_SWITCH_BLF) if not test else not self._mcp.input(_IN_TEST)
         return self.sw_pressed
 
-    def powered(self):  # returns True if the bike is powered on (service output), False if not
-        self.pwr = self._mcp2.input(_IN_PWR)
+    def powered(self):  # returns True if the bike is powered on (service output)
+        self.pwr = self._mcp.input(_IN_PWR)
         return self.pwr
 
-    def beep(self, duration, freq_pause=380):  # duration in ms, freq_pause in us
-        duration *= 1000  # ms to us
-        tmr = utime.ticks_us()
-        while utime.ticks_diff(utime.ticks_us(), tmr) < duration:
-            self._mcp1.output(_BUZZER, 0)
+    def buzz(self, val):  # turns the buzzer on (1) or off (0)
+        self._mcp.output(_BUZZER, val)
+
+    def beep(self, duration, freq_pause=0.38):  # params in ms, pause usable for beeping (> 100) or pitch (< 1.00)
+        tmr = utime.ticks_ms()
+        freq_pause *= 1000  # to us
+        while utime.ticks_diff(utime.ticks_ms(), tmr) < duration:
+            self.buzz(1)
             utime.sleep_us(freq_pause)
-            self._mcp1.output(_BUZZER, 1)
+            self.buzz(0)
             utime.sleep_us(freq_pause)
