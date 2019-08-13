@@ -120,7 +120,7 @@ async def some_main_task():
             if net.client_count() != num_clients:
                 num_clients = net.client_count()
                 print("client count changed to " + str(num_clients))
-            net.process()  # update all clients and handle requests
+            net.process()  # update all clients and handle  requests
             # some other stuff:
             ecu.update()
             await d(20)  # for some test stuff
