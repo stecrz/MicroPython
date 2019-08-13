@@ -2,6 +2,8 @@ from time import ticks_ms as tms, ticks_diff as tdiff
 from uasyncio import get_event_loop, sleep_ms as d
 from net import NetServer
 import urandom
+from ctrl import OLED
+from machine import I2C, Pin
 
 
 class ECUBase:
@@ -28,7 +30,6 @@ class FakeECU(ECUBase):
         self.map_v = 0  # +- MAP sensor voltage
         self.bat = 0  # battery voltage
         self.speed = 0  # VS sensor (km/h)
-        self.fuelInjTime = 0  # TODO probably fuel injection duration (ms?)
         self.sidestand = None  # driving/parking state: True = kickstand used, False = unused, None = not calculable
         self.engine = False  # running?
         self.idle = True  # True = engine is idling or STARTABLE (clutch pulled and/or neutral (no gear))
@@ -60,26 +61,21 @@ class FakeECU(ECUBase):
             print("READY", self.ready)
             self.connecting = bool(urandom.getrandbits(1))
             print("CONNECTING", self.connecting)
-            ctrl.pwr = bool(urandom.getrandbits(1))
-            print("PWR", ctrl.pwr)
+            io.pwr = bool(urandom.getrandbits(1))
+            print("PWR", io.pwr)
 
 
-_CODE_CHAR = {'A': 0x77, 'C': 0x39, 'E': 0x79, 'F': 0x71, 'G': 0x3D, 'H': 0x76, 'I': 0x30,
-              'J': 0x1E, 'L': 0x38, 'O': 0x3F, 'P': 0x73, 'S': 0x6D, 'U': 0x3E, 'Y': 0x6E,
-              'b': 0x7C, 'c': 0x58, 'd': 0x5E, 'h': 0x74, 'n': 0x54, 'o': 0x5C, 'q': 0x67,
-              'r': 0x50, 't': 0x78, 'u': 0x1C, '-': 0x40, ' ': 0x00, '0': 0x3F, '1': 0x06,
-              '2': 0x5B, '3': 0x4F, '4': 0x66, '5': 0x6D, '6': 0x7D, '7': 0x07, '8': 0x7F, '9': 0x6F}
 RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}
-class FakeControl:
+
+
+class FakeControlWithOLED:
     def __init__(self):
+        i2c = I2C(-1, Pin(5), Pin(4))
+        self.oled = OLED(64, 128, i2c)
+
         self.pwr = True
         self.sw_pressed = True
-        self.mode = 0
         self.rly = {k: False for k in RLY}
-
-        self.pattern = 0
-        self._circle = 1
-        self.dot = 0
 
         self._tmr = tms()
 
@@ -90,51 +86,27 @@ class FakeControl:
             print("RLY " + name + " TO " + str(val))
             self.rly[name] = val
 
-    def seg_show(self, c):  # shows a single symbol (no dot) on the 7-seg
-        c = str(c)
-        if c == '.':
-            self.dot = 1
-        if c not in _CODE_CHAR:
-            c = c.lower() if c.isupper() else c.upper()
-            if c not in _CODE_CHAR:
-                c = ' '
-        self.pattern = _CODE_CHAR[c]
+    def clear(self):
+        self.pwr = False
+        self.sw_pressed = False
+        self.oled.clear()
+        self.led_b(0)
+        self.led_g(0)
+        print("Cleared.")
 
-    async def seg_print(self, msg, t=600, p=100):
-        print("PRINTING (in %.1fs) '%s'..." % (len(msg) * t / 1000, msg))
-        # Shows a text or number (could be negative or float)
-        # Each symbol will be shown for <t> ms, followed by a <p> ms pause (nothing displayed)
-        # The display will be cleared after displaying.
-        for c in str(msg):
-            self.seg_clear()
-            await d(p)
-            self.seg_show(c)
-            await d(t)
-        self.seg_clear()
+    def led_g(self, val):
+        print("LED G", "on" if val else "off")
 
-    def seg_clear(self):
-        self.pattern = 0
-        self.dot = 0
+    def led_b(self, val):
+        print("LED B", "on" if val else "off")
 
-    def seg_circle(self, clockwise=False, invert=False):
-        if clockwise:
-            self._circle <<= 1
-            if self._circle >= 0b1000000:  # would be middle seg -
-                self._circle = 1
-        else:
-            self._circle >>= 1
-            if self._circle == 0:
-                self._circle = 0b100000
-
-        if invert:
-            self.pattern = self._circle ^ 0x3F
-        else:
-            self.pattern = self._circle
+    def buzz(self, val):
+        print("BUZZER", "on" if val else "off")
 
 
 loop = get_event_loop()
 ecu = FakeECU()
-ctrl = FakeControl()
+io = FakeControlWithOLED()
 net = NetServer()
 
 
