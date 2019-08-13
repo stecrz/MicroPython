@@ -13,7 +13,8 @@ try:
 except Exception as e:
     exc = e  # save exception that happend in my program using UART0
 
-UART0.init(115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
+import machine
+machine.UART(0, 115200, bits=8, parity=None, stop=1)  # so that it fits REPL again
 
 if exc is not None:
     raise exc  # show the exception on REPL

@@ -16,7 +16,7 @@ class ECUError(Exception):  # eg wrong checksum
 
 class HondaECU:
     # This class is asynchronous. On errors an ECUError will be raised. If it is an UART
-    # timeout (meaning we wanted to read x bytes from UART but it took too long) this ready
+    # timeout (meaning we wanted to read x bytes from UART but it took too long) the ready
     # state will be set to False in addition.
 
     _TX_DELAY = 25  # minimum delay between two write-procedures on the UART (ms)

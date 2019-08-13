@@ -81,9 +81,11 @@ class NetClient(WebSocketClient):
         self.conn_tmr = tms()  # for checking if client is connected
 
     def routine(self):  # main routine, executed all the time the client is active
+        self.obj['io'].oled.println("handle client")
+
         if tdiff(tms(), self.conn_tmr) > _WS_INACT_TO*1000:
             self.close()
-            # print("closed client")
+            self.obj['io'].oled.println("closed client")
             return
 
         msg = self.read()
@@ -91,7 +93,7 @@ class NetClient(WebSocketClient):
             msg = msg.decode('utf-8')
             try:
                 for m in json.loads('[' + msg.replace("}{", "},{") + ']'):  # can be multiple, therefore this shit...
-                    # print(repr(m))
+                    self.obj['io'].oled.println(repr(m))
                     self.execute(m)
             except ValueError:  # invalid JSON
                 pass
@@ -105,8 +107,9 @@ class NetClient(WebSocketClient):
         global _stay_on_for, _stay_on_tmr
         try:
             if 'PING' in msg:  # send stay-on-time (secs) as ACK
+                self.obj['io'].oled.println("do ACK")
                 self.send(ACK=max((_stay_on_for - tdiff(tms(), _stay_on_tmr)) // 1000, 0))
-                # print("acknowledged PING " + str(msg["PING"]))
+                self.obj['io'].oled.println("acknowledged PING " + str(msg["PING"]))
                 self.conn_tmr = tms()  # reset timer
             elif 'SET' in msg and 'TO' in msg:  # client wants to set local variable
                 self._set_var(msg['SET'], msg['TO'])
@@ -117,7 +120,7 @@ class NetClient(WebSocketClient):
                 elif cmd == "deepsleep":
                     deepsleep()
                 elif cmd == "console":
-                    raise Exception("ret by net")
+                    raise Exception("net return")
                 elif cmd == "ifconfig":  # returns AP and STA IP and Port; 0.0.0.0 if not connected
                     aw = ""
                     ap = network.WLAN(network.AP_IF)
@@ -182,7 +185,7 @@ class NetClient(WebSocketClient):
                             data_changed[attr] = _find_changed_vals(dat_old[attr], dat_new[attr])  # changed keys
                         else:
                             data_changed[attr] = dat_old[attr] = _deepcopy(dat_new[attr])  # local and com change
-                elif len(attr) != 0 and attr[0] != '_':  # new key
+                elif len(attr) != 0 and attr[0] != '_' and attr != "oled":  # new key, skip private attrs and attr oled
                     data_changed[attr] = dat_old[attr] = _deepcopy(dat_new[attr])  # local and comm change
 
             return data_changed

@@ -4,12 +4,12 @@
 # - erase_flash not working? disconnect ESP from all power sources
 # - Flash errors / ampy upload errors / \x00: Probably hardware issure. Make sure connections (RX/TX + power) are stable
 #   Disconnect OLED. After initial setup is performed ESP will not restart automatically
-# - os.listdir() shows many \x00\x00\x00 entries after flashing? maybe because of neopixel
+# - os.listdir() shows many \x00\x00\x00 entries after flashing? maybe because of neopixel, probably loose connections
 #   import uos, flashbdev
 #   uos.VfsFat.mkfs(flashbdev.bdev)
 # - OSError 28 = no more space (maybe because filesystem corrupted -> erase flash)
 # - Debugging: If OLED works, you can simply use io.oled.println("msg")
-#              Use mini-Test-Switch by changeing to switch_pressed(True)
+#              Use mini-Test-Switch by changeing to switch_pressed()
 
 # Required modules:
 # a) Self-defined:
@@ -30,14 +30,15 @@
 #
 # WORKING VERSION FROM 2018: uPython v1.9.4-29-g1b7487e-dirty on 2018-07-20
 # FILES: 'boot.py', 'main.py', '_main.mpy', 'netconf.json', 'html/', 'img/'
+# PRECOMPILE:  python -m mpy_cross _main.py
 
 #                       BOARD LAYOUT
 # ▛▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▛▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▜
 # ▌  ┌───────────┐           ▌  ┌FUSE+REV.CURRENT┐   RST◉  ▌
 # ▌⬲│ RELAY1/BL │           ▌  └PROT.DIODE(+3.3)┘   TX┌┬━┐ ▌
 # ▌  ╞═══════════╡           ▌ ┌─┐             ┌─┐ /RX└┴━┘ ▌
-# ▌⬲│ RELAY2/HO │           ▌ │:│            │:│ SCL┌┬━┐ ▌
-# ▌  ╞═══════════╡           ▌ │:│  ESP8266   │:│/SDA└┴━┘ ▌
+# ▌⬲│ RELAY2/HO │           ▌ │:│            │:│         ▌
+# ▌  ╞═══════════╡           ▌ │:│  ESP8266   │:│        ▌
 # ▌⬲│ RELAY3/ST │           ▌ │:│  headers   │:│ FLASH◉ ▌
 # ▌  ╞═══════════╡           ▌ │:│            │:│ UART: ▐
 # ▌⬲│ RELAY4/IG │           ▌ └─┘ I2C-ext:    └─┘ □□□□ ▌
@@ -114,7 +115,7 @@ class MenuView:
         self._sel_show(1)
         io.oled.show()
 
-    def show(self):  # displays the menu major view with 'cancel' item selected
+    def show(self):  # displays the menu major view with first item selected
         io.oled.text("Loading...")
         io.oled.show()
 
@@ -127,13 +128,14 @@ class MenuView:
             io.oled.text(txt, y=37 + self._idx_sel * self.__VS, **kw)
 
         opt("Brakeflash")
+        opt("Timer 0-100")
         opt("Turn LED " + ("off" if io.rly['LED'] else "on"))
         opt("Turn WiFi " + ("off" if net.active else "on"))
-        opt("Timer 0-100")
         opt("Warn Mode")
         opt("Close")
 
         self._num_opt = self._idx_sel + 1
+        self._idx_sel = 0
         self._sel_show(1)
         io.oled.show()
 
@@ -144,7 +146,7 @@ class IOTasks:
         ("iat", ("Intake Air", "° Celsius")),
         ("map", ("Manifold\nPressure", "kPa")),
         ("bat", ("Battery", "Volt")),
-        ("speed", ("Speed", "km/h")),
+        ("speed", ("Real\nSpeed", "km/h")),
     ])
 
     def __init__(self):
@@ -188,9 +190,13 @@ class IOTasks:
         gc.collect()
         cbuf = io.oled.prefetch_chrs("0123456789.", 50)  # for faster oled update
 
-        self._area_text("Let's go!", voff=38)
-        while ecu.speed <= 0:
-            await d(0)
+        try:
+            io.led_g(1)
+            self._area_text("Let's go!", voff=38)
+            while ecu.speed <= 0:
+                await d(0)
+        finally:  # also if cancelled
+            io.led_g(0)
 
         tmr = tms()
         cdiff = -1
@@ -199,10 +205,12 @@ class IOTasks:
             diff = round(tdiff(tms(), tmr) / 1000, 1)
             if diff >= 10:
                 diff = int(diff)
-                await d(0)  # allow scheduling after 10 secs todo: check if no sched in 10 sec could cause network abort
             if diff != cdiff:
                 cdiff = diff
                 self._area_big(diff, buf=cbuf)
+            await d(0)  # todo scheduling required for speed update, but may be too slow for blitting every 0.1 s
+
+        await blink(io.led_g, 150)
 
     async def warn(self):
         self.stay_on = True
@@ -238,11 +246,13 @@ class IOTasks:
         while True:
             if not ecu.engine or ecu.rpm <= 0:  # engine not running (probably parking) or just starting up
                 self._area_big('P')
+                cgear = None
             elif ecu.idle or ecu.gear is None:
-                if ecu.sidestand or (ecu.speed <= _DRIVING_SPEED_THRESH and ecu.tp > 0):  # idling in parkmode or revvin
+                cgear = None
+                if ecu.sidestand:  # idling in parkmode
                     self._area_big('S')
-                elif ecu.speed <= _DRIVING_SPEED_THRESH:  # idling while standing/very slow (not revving)
-                    self._area_big('N')
+                elif ecu.speed <= 0:  # idling while standing
+                    self._area_big('-')
                 else:  # idling while driving = probably shifting (maybe revving)
                     await blink(io.oled.power, 200, 350, 0)  # todo test
                     continue  # skip second yield
@@ -270,11 +280,10 @@ class IOTasks:
             await d(100)
 
     async def _kill_task(self):
-        if self.task is None:
-            return
-        await d(0)  # the task has to be started, otherwise we cannot cancel  todo: try newer v. of asyncio
-        cancel(self.task)
-        await d(0)  # be sure it gets killed
+        if self.task is not None:
+            await d(0)  # the task has to be started, otherwise cancel will block  todo: remove if possible
+            cancel(self.task)
+            await d(0)  # be sure it gets killed
 
         io.oled.fill(0)  # prepare oled for next task
         self._area = None  # no area in use
@@ -301,40 +310,43 @@ class IOTasks:
     def __menu_sel_to_view(self, sel_idx):
         # Maps the index of a menu selection to the corresponding view and returns it. setup_task has to be called.
         # For some menu entries only one action takes place, but the view will return to gear view.
-        if sel_idx == 0:
+        if sel_idx == 0:  # brakeflash
             return -1
-        elif sel_idx == 1:
+        elif sel_idx == 1:  # timer
+            return -2
+        elif sel_idx == 2:  # led on/off
             io.set_rly('LED', not io.rly['LED'])
-        elif sel_idx == 2:
+        elif sel_idx == 3:  # wifi on/off
             if not net.active:
                 start_net(0)  # until bike shutdown
             else:
                 net.stop()
-        elif sel_idx == 3:
-            return -2
-        elif sel_idx == 4:
+        elif sel_idx == 4:  # warn mode
             return -3
 
         return 1  # for selection 'Close', no selection (None/-1), and the ones without a specific view (autoreturn)
 
     async def run(self):  # reacts to switch state changes (eg by mode change), should run all the time
         menu = MenuView()
-        await self._setup_task()  # could be deleted, but to be safe in case ecu is ready *before* check (below) is done
+
+        if ecu.ready:  # this should not happen, but just in case the ECU is ready before display task starts, show gear
+            await self._setup_task()  # initial task
 
         while True:
-            if not ecu.ready:  # wait for ECU to be connected
+            if not ecu.ready and io.powered():  # wait for ECU to be connected (only if powered, otherwise don't wait)
                 await self._kill_task()  # suspend current view task
 
                 while not ecu.ready:
-                    await d(500)
                     while ecu.connecting:
                         await blink(io.led_b, 100, 400)
+                    else:
+                        await d(300)
 
                 await self._setup_task()  # now bring it up again
 
-            if (not io.sw_pressed) & io.switch_pressed(True):  # new BLF switch press; binary and to avoid short-circuiting
+            if (not io.sw_pressed) & io.switch_pressed():  # new BLF switch press; binary and to avoid short-circuiting
                 sw_tmr = tms()
-                while tdiff(tms(), sw_tmr) < _SW_HOLD_THRESH and io.switch_pressed(True):  # until released or long press
+                while tdiff(tms(), sw_tmr) < _SW_HOLD_THRESH and io.switch_pressed():  # until released or long press
                     await d(10)
 
                 if io.sw_pressed:  # long press
@@ -348,6 +360,8 @@ class IOTasks:
                     elif self.view == -3:  # silent warn
                         self.view = -4  # horn warn
                         await self._setup_task()  # restart required to load text
+                    elif self.view == -2:  # timer
+                        await self._setup_task()  # restart timer
                 else:  # short press
                     if self.view > 0:
                         self.view += 1  # display next view
@@ -365,13 +379,11 @@ class IOTasks:
 
 # Global Variables:
 
-UART0 = machine.UART(0, 115200)  # global UART0 object, can be reinitialized, given baudrate doesn't matter
 loop = get_event_loop()
-
 io = IOControl()
 task_ctrl = IOTasks()
-ecu = CBR500Sniffer(UART0)
 net = NetServer()
+ecu = CBR500Sniffer(machine.UART(0, 10400))
 
 
 # Functions:
@@ -434,7 +446,7 @@ async def task_net():  # runs until network is not active any more for some reas
 
 async def await_pwroff():
     while io.powered() or task_ctrl.stay_on:
-        await d(1000)  # should be <= SW_HOLD_THRESH
+        await d(1000)
 
 
 async def await_pwron():
@@ -446,14 +458,16 @@ async def await_pwron():
 
 
 def start_net(dur=_NET_DEFAULT_ONTIME):
-    # io.led_g(1)
     io.oled.fill(0)
-    io.oled.text("Bringing\nWiFi up...", lspace=1.2)
+    # io.oled.text("Bringing\nWiFi up...", lspace=1.2)
+    io.oled.text("Network is\nnot working\nin this version", lspace=1.2)
     io.oled.show()
-    net.start(dur)  # at least this time (sec) (more if bike powerdown is later)
-    loop.create_task(task_net())
+
+    # net.start(dur)  # at least this time (sec) (more if bike powerdown is later)  # TODO
+    # loop.create_task(task_net())
+    sleep_ms(2000)
+
     io.oled.clear()
-    # io.led_g(0)
 
 
 def run():
@@ -465,7 +479,7 @@ def run():
         show_logo()
     else:
         tmr = tms()
-        while io.switch_pressed(True):  # wait for switch to be released. NC = remains on until timeout
+        while io.switch_pressed():  # wait for switch to be released. NC = remains on until timeout
             if tdiff(tms(), tmr) > _SW_PWRUP_TIMEOUT:  # brakelight flash switch NC or hold down long for special fun
                 start_net()
                 break
@@ -478,8 +492,8 @@ def run():
 
     while True:
         if io.powered():  # bike (and maybe network) running
+            loop.create_task(task_ctrl.run())  # first start display
             loop.create_task(task_ecu())
-            loop.create_task(task_ctrl.run())
             loop.run_until_complete(await_pwroff())  # wait for poweroff (bike shutdown)
 
             # -> bike powered off
@@ -489,7 +503,7 @@ def run():
             io.clear()
             ecu.reset()
 
-            if io.switch_pressed(True):  # switch held down during shutdown
+            if io.switch_pressed():  # switch held down during shutdown
                 start_net()
             elif not net.stay_on():
                 io.off()
