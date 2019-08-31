@@ -82,14 +82,12 @@ from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms as sleep_ms
 from pwr import deepsleep
 import machine
 import gc
-from ucollections import OrderedDict
 # from sys import print_exception
 
 
 # Constants:
 
-_SHIFT_LIGHT_RPM_THRESH = 8000  # >= _ rpm -> shift light (for gear 1-5)
-_DRIVING_SPEED_THRESH = 5  # assume waiting (or revving if throttle is used) if speed <= _ km/h
+_DRIVING_SPEED_THRESH = 3  # assume standing if speed <= _ km/h
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms = long press
 _SW_PWRUP_TIMEOUT = 7000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
 _NET_DEFAULT_ONTIME = 60  # network remains active for _ minutes by default if activated
@@ -116,6 +114,7 @@ class MenuView:
         io.oled.show()
 
     def show(self):  # displays the menu major view with first item selected
+        gc.collect()
         io.oled.text("Loading...")
         io.oled.show()
 
@@ -138,16 +137,16 @@ class MenuView:
         self._idx_sel = 0
         self._sel_show(1)
         io.oled.show()
+        gc.collect()
 
 
 class IOTasks:
-    VIEW_ECU_ATTR = OrderedDict([  # add all ECU attributes (with description + unit) that should be displayed in a view
-        ("ect", ("Engine\nCoolant", "° Celsius")),
-        ("iat", ("Intake Air", "° Celsius")),
-        ("map", ("Manifold\nPressure", "kPa")),
-        ("bat", ("Battery", "Volt")),
-        ("speed", ("Real\nSpeed", "km/h")),
-    ])
+    VIEW_ECU_ATTR = (  # add all ECU attributes (with description + unit) that should be displayed in a view
+        ("ect", "Engine\nCoolant", "° Celsius"),
+        ("iat", "Intake Air", "° Celsius"),
+        ("bat", "Battery", "Volt"),
+        ("map", "Manifold\nPressure", "kPa"),
+    )
 
     def __init__(self):
         self._area = None  # used to hold an OLED area to be cleared later (should be reset on each task change)
@@ -177,7 +176,7 @@ class IOTasks:
             io.set_rly('BL', True)
             sleep_ms(90)  # no intr (not to be canceled here)
             io.set_rly('BL', False)
-            await d(70)  # todo: flashing not fast enough => use sleep_ms + replace while (await after every nth flash)
+            await d(70)
 
     async def timer(self):
         io.oled.img("timer", voff=-10)
@@ -188,6 +187,7 @@ class IOTasks:
 
         self._area_text("Buffering...", voff=38)
         gc.collect()
+        await d(200)  # make sure gc collected
         cbuf = io.oled.prefetch_chrs("0123456789.", 50)  # for faster oled update
 
         try:
@@ -210,7 +210,9 @@ class IOTasks:
                 self._area_big(diff, buf=cbuf)
             await d(0)  # todo scheduling required for speed update, but may be too slow for blitting every 0.1 s
 
-        await blink(io.led_g, 150)
+        self.view = -5
+        await blink(io.led_g, 180, 150, reps=3)
+        await blink(io.buzz, 800)  # todo: test if you can hear it @ 100km/h
 
     async def warn(self):
         self.stay_on = True
@@ -230,7 +232,7 @@ class IOTasks:
                         self._area_clear()
                     io.oled.show()
 
-                    await d(180)  # todo decrease because oled takes ~80 ms?
+                    await d(180)
         finally:  # make sure to turn off relay when task gets cancelled
             io.set_rly('BL', False)
             if self.view == -4:
@@ -238,43 +240,39 @@ class IOTasks:
             self.stay_on = False
 
     async def view_gear(self):
-        cgear = None  # currently displayed on OLED
+        cgear = None  # currently displayed on OLED#
 
         if not ecu.ready:
             await d(100)  # since view gear is the first task, it will be killed and restarted immediately
 
         while True:
-            if not ecu.engine or ecu.rpm <= 0:  # engine not running (probably parking) or just starting up
-                self._area_big('P')
-                cgear = None
-            elif ecu.idle or ecu.gear is None:
-                cgear = None
-                if ecu.sidestand:  # idling in parkmode
-                    self._area_big('S')
-                elif ecu.speed <= 0:  # idling while standing
-                    self._area_big('-')
-                else:  # idling while driving = probably shifting (maybe revving)
-                    await blink(io.oled.power, 200, 350, 0)  # todo test
-                    continue  # skip second yield
+            if ecu.sidestand:  # parking
+                ngear = 'P'
+            elif ecu.rpm <= 0 or not ecu.engine:  # engine not running, but no sidestand
+                ngear = 'X'
+            elif ecu.speed <= _DRIVING_SPEED_THRESH:  # idling while standing
+                ngear = '-'
+            elif ecu.idle or ecu.gear is None:  # idling while driving = probably shifting
+                await blink(io.oled.power, 200, 350, 0)
+                continue  # skip second yield and gear-change-check
             else:
-                if cgear != ecu.gear:
-                    cgear = ecu.gear
-                    self._area_big(cgear)
-                if ecu.rpm > _SHIFT_LIGHT_RPM_THRESH and ecu.gear < 6:
-                    await blink(io.led_b, 60, 60)  # shift light
-                    continue  # skip second yield
+                ngear = ecu.gear
+
+            if ngear != cgear:
+                self._area_big(ngear)
+                cgear = ngear
 
             await d(0)
 
-    async def view_ecu(self, attr):
-        io.oled.text(IOTasks.VIEW_ECU_ATTR[attr][0], voff=-33, lspace=1.2)
-        io.oled.text(IOTasks.VIEW_ECU_ATTR[attr][1], y=105)
+    async def view_ecu(self, attr_nr):
+        io.oled.text(IOTasks.VIEW_ECU_ATTR[attr_nr][1], voff=-33, lspace=1.2)
+        io.oled.text(IOTasks.VIEW_ECU_ATTR[attr_nr][2], y=105)
 
         cval = None
         while True:
-            val = getattr(ecu, attr)
-            if cval != val:
-                cval = val
+            nval = getattr(ecu, IOTasks.VIEW_ECU_ATTR[attr_nr][0])
+            if cval != nval:
+                cval = nval
                 self._area_big(cval, voff=8)
 
             await d(100)
@@ -298,14 +296,16 @@ class IOTasks:
         if nr == 1:
             return self.view_gear()
         elif 0 <= nr-2 < len(IOTasks.VIEW_ECU_ATTR):
-            return self.view_ecu(list(IOTasks.VIEW_ECU_ATTR.keys())[self.view-2])
+            return self.view_ecu(nr-2)
         elif nr == -1:
             return self.brakeflash()
         elif nr == -2:
             return self.timer()
-        elif nr == -3 or nr == -4:
+        elif nr == -3 or nr == -4:  # -4 = with horn
             return self.warn()
-        # else invalid or menu: no view => None
+        # -5 = timer finished (time displayed, do not change) => None
+        # 0 = menu -> no view => None
+        # else = invalid => None
 
     def __menu_sel_to_view(self, sel_idx):
         # Maps the index of a menu selection to the corresponding view and returns it. setup_task has to be called.
@@ -360,8 +360,6 @@ class IOTasks:
                     elif self.view == -3:  # silent warn
                         self.view = -4  # horn warn
                         await self._setup_task()  # restart required to load text
-                    elif self.view == -2:  # timer
-                        await self._setup_task()  # restart timer
                 else:  # short press
                     if self.view > 0:
                         self.view += 1  # display next view
@@ -370,6 +368,9 @@ class IOTasks:
                         await self._setup_task()
                     elif self.view == 0:
                         menu.select_next()
+                    elif self.view == -5:  # timer finished
+                        self.view = -2  # restart timer
+                        await self._setup_task()
                     else:  # exit special mode
                         self.view = 1
                         await self._setup_task()
@@ -424,8 +425,7 @@ async def task_ecu():
             except ECUError:
                 errc += 1
                 if errc >= 5:
-                    for _ in range(5):
-                        await blink(io.buzz, 500, 500)
+                    await blink(io.buzz, 500, 500, reps=5)
                     break
             # except Exception as ex:  # should not happen
             #     debug("repr(ex)")
@@ -525,4 +525,6 @@ def main():
             io.oled.println(str(e))
         except:
             pass
-        raise e
+        sleep_ms(5000)
+        io.off()
+        deepsleep()

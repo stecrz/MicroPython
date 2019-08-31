@@ -7,12 +7,11 @@ from uasyncio import get_event_loop
 import network
 
 
-_CONFIG_FILE = "netconf.json"  # this file must contain, hosname, password, known networks, port (...)
+_CONFIG_FILE = "netconf.json"  # this file must contain, hostname, password, known networks, port (...)
 _OBJS = ('ecu', 'io')  # all non-private vars in these objects will be monitored and sent to clients on update
 _WS_INACT_TO = 14  # client is closed when no message (incl PING!) received for _ s (>= WS_SYN_INTERVAL)
-                   # don't use too small value, as cient will not send PING message if JS alert is displayed
 _AP_CONF = ('192.168.0.1', '255.255.255.0', '192.168.0.1', '')  # ip, subnet, gateway, dns
-_HTML_INDEX = "/html/index.html"  # None = unsued
+_HTML_INDEX = "/html/index.html"  # None = unused
 _HTML_404 = "/404.html"  # None = unused
 
 # global because both NetServer and NetClient need access
@@ -103,7 +102,7 @@ class NetClient(WebSocketClient):
     def send(self, **msg):
         self.write(json.dumps(_json_prep(msg)))
 
-    def execute(self, msg):  # execute a msg object (must be dict unpacket from json)
+    def execute(self, msg):  # execute a msg object (must be dict unpacked from json)
         global _stay_on_for, _stay_on_tmr
         try:
             if 'PING' in msg:  # send stay-on-time (secs) as ACK

@@ -21,18 +21,20 @@ _IN_PWR = 10  # input pin for powered status of the bike
 _IN_TEST = 9  # test input button on mini board, can be used instead of BLF switch on bike for testing
 
 
-async def blink(outfun, d1=150, d2=0, startval=1):
+async def blink(outfun, d1=150, d2=0, startval=1, reps=1):
     # Calls <outfun> with value 1 and rests for <d1> ms, then calls with value 0 and rests for <d2> ms
-    # if <startval> is 1. Otherwise (if <startval> is 0), <outfun> will be called with param 0 first.
-    try:
-        outfun(startval)
-        await d(d1)
-        outfun(1-startval)
-    except CancelledError:  # make sure this coro always ends in the same state, even if task cancelled inbetween
-        outfun(1-startval)
-        return
-    if d2:
-        await d(d2)
+    # if <startval> is 1; otherwise (if <startval> is 0), <outfun> will be called with param 0 first.
+    # This routine is executed <reps> times in a row (only makes sense if <d2> is not 0).
+    for __ in range(reps):
+        try:
+            outfun(startval)
+            await d(d1)
+        except CancelledError:
+            return  # return is required on cancellation
+        finally:
+            outfun(1-startval)  # make sure this coro always ends in the same state, even if task cancelled inbetween
+        if d2:
+            await d(d2)
 
 
 class OLED(SSD1306_I2C):
