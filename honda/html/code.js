@@ -3,8 +3,8 @@ const $ = function(id) { return document.getElementById(id); };
 
 const PORT = 80;
 const WS_MAX_PINGS = 3;  // assume connection failed if _ pings fail in a row
-const WS_PING_INTERVAL = 3500;  // send ping message to server every ... ms (so that server does not close conn)
-const WS_RECONN_TIMEOUT = 2000;  // reconnect after _ ms on close
+const WS_PING_INTERVAL = 5000;  // send ping message to server every ... ms (so that server does not close conn)
+const WS_RECONN_TIMEOUT = 1000;  // reconnect after _ ms on close
 
 var ws;
 var cache = null;
@@ -74,16 +74,12 @@ setupBtn("io.rly.HO");
 setupBtn("io.rly.LED");
 setupBtn("reboot", 	"Der Chip wird über einen <b>Soft-Reset</b> zurückgesetzt. Das Netzwerk-Interface wird anschließend reaktiviert.", true);
 setupBtn("deepsleep", "<b>Hinweis:</b> Der Chip wird in den <b>Deepsleep</b>-Modus versetzt.", true);
-setupBtn("console", "<b>WARNUNG:</b> Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen (Hard-Reset zur Wiederherstellung).", true);
+//setupBtn("console", "<b>WARNUNG:</b> Das laufende Programm wird durch die Rückkehr zur Konsole abgebrochen (Hard-Reset zur Wiederherstellung).", true);
 setupBtn("ifconfig");
 setupBtn("netls");
 setupBtnNetwork("netadd", "Neue Netzwerkverbindung hinzufügen (bzw. Passwort ändern):", "SSID", "Sicherheitsschlüssel");
 setupBtnNetwork("netrm", "Zu löschendes Netzwerk eingeben:", "SSID");
 setupTxtTimer("nettime");
-/*
-setupTxtMode("io.view");
-setupBtnPrint();
-*/
 
 resetAll();  // initial setup
 
@@ -127,6 +123,7 @@ function setupBtn(id, msg, reset=false) {
 	        sendObj({'CMD': id});
 			if (reset) {
                 setTxt("ackState", "Reset");
+                console.log("diconn by btn")
 			    disconnect();
 			}
 	    }
@@ -149,21 +146,6 @@ function setupBtnNetwork(id, msg, hintId, hintPw=null) {
 	}
 	elem.ontouchstart = function(){};  // to show :active state
 }
-/*
-function setupTxtMode(id) {
-	var elem = $(id);
-	elem.onclick = function(evt) {
-		if (evt.button != 2 && !elem.classList.contains("disabled")) {
-            popup("Modus setzen:", function(newMode) {
-                var val = parseInt(newMode);
-                if (!isNaN(val))
-                    sendVar(id, val);
-                else
-                    popup("Ungültige Eingabe!");
-            }, [cache.io.mode]);
-		}
-	}
-}*/
 function setupTxtTimer(id) {
 	var elem = $(id);
 	elem.onclick = function(evt) {
@@ -184,30 +166,6 @@ function setupTxtTimer(id) {
 		}
 	}
 }
-/*
-function setupBtnPrint() {
-    var elem = $("print");  // the real send button
-    var form = $("segform");  // surrounding form containing input + btn
-    //let txt = $("segout").value;
-    //if ((invalidChar = /[^a-zA-Z0-9_\.\-\s]|[KMVWXZkmvwxz]/.exec(txt)) != null)
-    //  popup("Das Zeichen '" + invalidChar + "' ist nicht darstellbar.");}
-    elem.onmousedown = elem.ontouchstart = function(evt) {
-        if (evt.button != 2 && !elem.disabled && !elem.classList.contains("pressed")) {
-            elem.classList.add("pressed");
-            form.classList.add("pressed");
-        }
-    }
-    form.onsubmit = function(evt) {
-        evt.preventDefault();
-        if (!elem.disabled) {
-            elem.classList.remove("pressed");
-            form.classList.remove("pressed");
-            sendObj({'CMD': "print", 'MSG': $("segout").value});
-        }
-        return false;
-    }
-}
-*/
 
 function disableBtn(elem, disabled) {
 	if (elem.nodeName == "INPUT")
@@ -219,7 +177,7 @@ function disableBtn(elem, disabled) {
 			elem.classList.remove("disabled");
 }
 function disableBtns(disable) {
-	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn,.submitbtn,.submitbtn-send,.submitbtn-txt");
+	var btns = document.querySelectorAll(".holdbtn,.switch-onoff,.clickbtn,.inputbtn");
 	[].forEach.call(btns, function(elem) { disableBtn(elem, disable); } );
 }
 function resetAll() {
@@ -228,9 +186,6 @@ function resetAll() {
 	setBg("ecu.engine", '#777');
 	setBg("ecu.ready", '#777');
 	setBg("io.sw_pressed", '#777');
-
-    // for (var i = 0; i < 8; i++)
-    //     segShow("seg-" + String.fromCharCode(97 + i), 0);
 
 	// cached variables cleared on screen:
 	if (cache != null) {
@@ -267,13 +222,6 @@ function setTxt(id, value) {
 function setBg(id, color) {
 	$(id).style.backgroundColor = color;
 }
-/*
-function segShow(segId, active) {
-    if (active)
-        $(segId).classList.add("seg-show");
-    else
-        $(segId).classList.remove("seg-show");
-}*/
 
 function sendObj(dictObj) {
 	console.log(JSON.stringify(dictObj));
@@ -297,12 +245,13 @@ function connect() {
 
         window.keepConn = setInterval( function() {
             if (pingTries <= 0) {
-                //console.log("ping-timeout");
+                console.log("disconn by timeout");
                 setTxt("ackState", "Timeout (" + pingNr + ")");
                 disconnect();
                 return;
             }
             if (recvdReply) {
+                console.log("received ack for ping " + pingNr);
                 if (pingNr == 0)  // enable buttons on first ping reply
                     disableBtns(false);
                 pingNr++;
@@ -312,6 +261,7 @@ function connect() {
             pingTries--;
             setTxt("ackState", "Ping (" + pingNr + ")");
             sendObj({'PING': pingNr});
+            console.log("sent ping " + pingNr);
         }, WS_PING_INTERVAL);
 	}
 
@@ -353,18 +303,6 @@ function connect() {
 						case "sw_pressed":
 							setBg("io.sw_pressed", cache.io.sw_pressed ? '#fc0' : '#a66');
 							break;
-						/*
-						case "dot":
-						    segShow("seg-h", cache.io.dot);
-						    break;
-						case "pattern":
-						    for (var i = 0; i < 7; i++)
-						        segShow("seg-" + String.fromCharCode(97 + i), cache.io.pattern & (1 << i));
-						    break;
-						case "mode":
-							setTxt('io.mode', cache.io.mode);
-							break;
-						*/
 					}
 				}
 			}
@@ -406,8 +344,11 @@ function connect() {
 	}
 
 	ws.onclose = disconnect;
+
+	setTxt("ackState", "Verbinden...");
 }
 function disconnect() {
+    console.log("disconn")
     clearInterval(window.keepConn);
     resetAll();
     setTxt("ackState", "Beendet");

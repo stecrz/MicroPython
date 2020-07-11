@@ -1,9 +1,28 @@
 from time import ticks_ms as tms, ticks_diff as tdiff
 from uasyncio import get_event_loop, sleep_ms as d
-from net import NetServer
 import urandom
-from ctrl import OLED
 from machine import I2C, Pin
+
+from net import NetServer
+from ctrl import OLED
+
+
+# Required modules:
+# a) Self-defined:
+#    - ctrl
+# b) Drivers (modified from others):
+#    - webserver
+#    - mcp23017 (not used in this test but ctrl.py requires import)
+#    - ssd1306_vert
+# c) Drivers:
+#    - uasyncio
+# d) Other files (not frozen into flash => ampy):
+#    - html/ (contains html content for webserver; can be used locally as well)
+#    - netconf.json
+#    - img/ (contains images for OLED, e.g. font letters)
+#    - main.py (this file)
+#    - net.mpy (if not frozen ito firmware)
+# PRECOMPILE:  python -m mpy_cross net.py
 
 
 class ECUBase:
@@ -38,31 +57,20 @@ class FakeECU(ECUBase):
         self._tmr = tms()
 
     def update(self):
-        if tdiff(tms(), self._tmr) > 3000:
+        if tdiff(tms(), self._tmr) > 10000:
             self._tmr = tms()
 
             self.rpm = urandom.getrandbits(10)
-            print("RPM", self.rpm)
             self.tp = urandom.getrandbits(2)
-            print("TP", self.tp)
             self.ect_v = urandom.getrandbits(2)
-            print("ECT_V", self.ect_v)
             self.bat = urandom.getrandbits(10) / 10
-            print("BAT", self.bat)
             self.sidestand = None if urandom.getrandbits(1) else bool(urandom.getrandbits(1))
-            print("SIDESTAND", self.sidestand)
             self.engine = bool(urandom.getrandbits(1))
-            print("ENGINE", self.engine)
             self.gear = None if urandom.getrandbits(3) == 0 else urandom.getrandbits(3)
-            print("GEAR", self.gear)
             self.speed = urandom.getrandbits(8)
-            print("SPEED", self.speed)
             self.ready = bool(urandom.getrandbits(1))
-            print("READY", self.ready)
             self.connecting = bool(urandom.getrandbits(1))
-            print("CONNECTING", self.connecting)
             io.pwr = bool(urandom.getrandbits(1))
-            print("PWR", io.pwr)
 
 
 RLY = {'BL': 0, 'HO': 1, 'ST': 2, 'IG': 3, 'LED': 4}

@@ -155,14 +155,12 @@ class NetClient(WebSocketClient):
                 elif cmd == "nettime":
                     _stay_on_for = int(msg['VAL']) * 1000  # ms
                     _stay_on_tmr = tms()
-                elif cmd == "print":
-                    if len(loop.runq) >= 13 or len(loop.waitq) >= 13:  # length specified in get_event_loop(), def.: 16
-                        self.send(ALERT="Alle Ressourcen ausgeschöpft (%d,%d). Bitte warten!" % (len(loop.runq), len(loop.waitq)))
-                    else:
-                        # loop.create_task(self.obj['io'].seg_print(msg["MSG"]))
-                        self.obj['io'].oled.clear()
-                        self.obj['io'].oled.text(msg["MSG"])
-                        self.obj['io'].oled.show()
+                elif cmd == "text":
+                    self.obj['io'].oled.clear()
+                    self.obj['io'].oled.text(msg["MSG"])
+                    self.obj['io'].oled.show()
+                elif cmd == "println":
+                    self.obj['io'].oled.println(msg["MSG"])
             # elif 'GET' in msg:  # client wants to get local variable(s)
             #     if not msg['GET']:  # empty string or None -> enquiring all cached data
             #         self.send(UPDATE=self.data)

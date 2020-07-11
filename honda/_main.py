@@ -3,7 +3,7 @@
 #   disarming only possible until ESP is connected (not afterwards)
 # - erase_flash not working? disconnect ESP from all power sources
 # - Flash errors / ampy upload errors / \x00: Probably hardware issure. Make sure connections (RX/TX + power) are stable
-#   Disconnect OLED. After initial setup is performed ESP will not restart automatically
+#   Disconnect OLED! After initial setup is performed ESP should *not* restart automatically.
 # - os.listdir() shows many \x00\x00\x00 entries after flashing? maybe because of neopixel, probably loose connections
 #   import uos, flashbdev
 #   uos.VfsFat.mkfs(flashbdev.bdev)
@@ -81,7 +81,6 @@ from uasyncio import get_event_loop, cancel, sleep_ms as d  # for shorting delay
 from utime import ticks_diff as tdiff, ticks_ms as tms, sleep_ms as sleep_ms
 from pwr import deepsleep
 import machine
-import gc
 # from sys import print_exception
 
 
@@ -114,7 +113,6 @@ class MenuView:
         io.oled.show()
 
     def show(self):  # displays the menu major view with first item selected
-        gc.collect()
         io.oled.text("Loading...")
         io.oled.show()
 
@@ -137,7 +135,6 @@ class MenuView:
         self._idx_sel = 0
         self._sel_show(1)
         io.oled.show()
-        gc.collect()
 
 
 class IOTasks:
@@ -186,7 +183,6 @@ class IOTasks:
             await d(500)
 
         self._area_text("Buffering...", voff=38)
-        gc.collect()
         await d(200)  # make sure gc collected
         cbuf = io.oled.prefetch_chrs("0123456789.", 50)  # for faster oled update
 
@@ -438,8 +434,10 @@ async def task_ecu():
 async def task_net():  # runs until network is not active any more for some reason (if you stop)
     while net.active:  # will not change from inside this loop, but you can set it by calling net.stop() outside
         if net.client_count() == 0:
+            io.oled.println("no clients")
             await d(200)  # long delay, more time for ECU
         else:
+            io.oled.println("handle clients")  # TODO wird nie erreicht, setzt sich zurück vermutlich memory probleme
             net.process()  # performs all updates server <-> clients (including relays sets, ...)
             await d(0)  # short delay
 
@@ -459,13 +457,13 @@ async def await_pwron():
 
 def start_net(dur=_NET_DEFAULT_ONTIME):
     io.oled.fill(0)
-    # io.oled.text("Bringing\nWiFi up...", lspace=1.2)
-    io.oled.text("Network is\nnot working\nin this version", lspace=1.2)
+    io.oled.text("Bringing\nWiFi up...", lspace=1.2)
+    #io.oled.text("Network is\nnot working\nin this version", lspace=1.2)
     io.oled.show()
 
-    # net.start(dur)  # at least this time (sec) (more if bike powerdown is later)  # TODO
-    # loop.create_task(task_net())
-    sleep_ms(2000)
+    net.start(dur)  # at least this time (sec) (more if bike powerdown is later)  # TODO
+    loop.create_task(task_net())
+    # sleep_ms(2000)
 
     io.oled.clear()
 

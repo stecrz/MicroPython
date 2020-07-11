@@ -1,4 +1,5 @@
-import ssd1306  # cp ~/MicroPythonOLD/drivers/display/ssd1306.py ~/MicroPythonOLD/ports/esp8266/scripts
+import ssd1306_vert  # cp ~/micropython/drivers/display/ssd1306.py ~/micropython/ports/esp8266/modules
+# oled = ssd1306_vert.SSD1306_I2C(128, 64, machine.I2C(-1, machine.Pin(5), machine.Pin(4)))
 
 
 class Display:
@@ -8,7 +9,7 @@ class Display:
         self._swidth = symbol_width
         self._sheight = symbol_height
         self.cursor = None
-        self.oled = ssd1306.SSD1306_I2C(self._width, self._height, i2c)
+        self.oled = ssd1306_vert.SSD1306_I2C(self._width, self._height, i2c)
         self.clear()
 
     def clear(self):

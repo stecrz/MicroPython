@@ -5,6 +5,7 @@ from machine import Pin, I2C
 import utime
 from uasyncio import CancelledError, sleep_ms as d
 import framebuf
+import gc
 
 
 _SCL = 5
@@ -111,6 +112,8 @@ class OLED(SSD1306_I2C):
                 return int(wh[0]), int(wh[1]), bytearray(f.read())
         except OSError:  # failed to load, probably unsupported letter
             return 2 if size == 12 else 4, 0, b''  # space
+        finally:
+            gc.collect()
 
     @staticmethod
     def prefetch_chrs(s, size):

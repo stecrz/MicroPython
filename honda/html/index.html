@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 	<head>
-		<title>Scarlett Control</title>
+		<title>Neverland Bike Control</title>
 
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
@@ -24,7 +24,7 @@
 			</div>
 		</div>
 
-		<h1>Scarlett Control</h1>
+		<h1>Neverland Bike</h1>
 
 		<table class="relays">
 			<tr>
@@ -87,8 +87,6 @@
 		<table class="ecu">
 			<tr>
 				<td>Batterie:</td>
-				<!-- <td colspan="2"><span id="ecu.bat">~&nbsp;</span> V</td>
-				<td><div id="io.mode" class="inputbtn clickable-framed-txt">~</div></td> -->
 				<td colspan="3"><span id="ecu.bat">~&nbsp;</span> V</td>
 			</tr>
 			<tr>
@@ -139,32 +137,19 @@
 			<span class="circle" id="io.sw_pressed"></span>
 		</div>
 
-		<!--
-		<div class="segment-display">
-			<div id="seg-a" class="seg-x"><div class="seg-edge"></div></div>
-			<div id="seg-b" class="seg-y"><div class="seg-edge"></div></div>
-			<div id="seg-c" class="seg-y"><div class="seg-edge"></div></div>
-			<div id="seg-d" class="seg-x"><div class="seg-edge"></div></div>
-			<div id="seg-e" class="seg-y"><div class="seg-edge"></div></div>
-			<div id="seg-f" class="seg-y"><div class="seg-edge"></div></div>
-			<div id="seg-g" class="seg-x"><div class="seg-edge"></div></div>
-			<div id="seg-h" class="seg-dot"></div>
+		<div class="buttons">
+			<input id="oledshow" type="button" class="clickbtn" value="TEXT (VOLLBILD)">
+			<input id="oledprintln" type="button" class="clickbtn" value="TEXT (ZEILE)">
 		</div>
-
-		<form id="segform" class="submitbtn">
-			<input id="segout" type="text" class="submitbtn-txt" placeholder="Ausgabetext"
-				   pattern="[a-jln-uyA-JLN-UY0-9._ -]*" title="Buchstaben (ohne KMVWXZ), Zahlen, ., -, _, Leerzeichen">
-			<input id="print" type="submit" class="submitbtn-send" value="&#8618;&#xFE0E;">
-		</form>
-		-->
 
 		<div class="headline">System</div>
 
 		<div class="buttons">
 			<input id="reboot" type="button" class="clickbtn" value="NEUSTART">
 			<input id="deepsleep" type="button" class="clickbtn" value="STANDBY">
-			<input id="console" type="button" class="clickbtn" value="KONSOLE">
+			<!-- <input id="console" type="button" class="clickbtn" value="KONSOLE"> -->
 		</div>
+
 		<div class="headline">Netzwerk</div>
 
 		<div class="buttons">
@@ -177,7 +162,7 @@
 		<table class="net">
 			<tr>
 				<td>Status:</td>
-				<td><span id="ackState">Warten...</span></td>
+				<td><span id="ackState">Inaktiv</span></td>
 			</tr>
 			<tr>
 				<td>Verbleibend:</td>
@@ -186,7 +171,7 @@
 		</table>
 
 		<div class="footer">
-			&#x00A9; 2019 &#x00B7; STECRZ
+			&#x00A9; 2018-2019 &#x00B7; STECRZ
 		</div>
 
 		<script language="javascript" type="application/javascript" src="code.js"></script>
