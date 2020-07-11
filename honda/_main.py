@@ -86,6 +86,7 @@ import machine
 
 # Constants:
 
+_ENGINE_WARM_THRESH = 80  # assume engine is heated up (ready to drive faster) if ECT >= _ °C
 _DRIVING_SPEED_THRESH = 3  # assume standing if speed <= _ km/h
 _SW_HOLD_THRESH = 1000  # switch held down for at least _ ms = long press
 _SW_PWRUP_TIMEOUT = 7000  # switch must not be pressed at powerup. wait for at most _ ms, otherwise activate wlan
@@ -328,7 +329,9 @@ class IOTasks:
         if ecu.ready:  # this should not happen, but just in case the ECU is ready before display task starts, show gear
             await self._setup_task()  # initial task
 
-        while True:
+		engine_warm = None  # ECT heated up? if not, blue LED on
+		
+		while True:
             if not ecu.ready and io.powered():  # wait for ECU to be connected (only if powered, otherwise don't wait)
                 await self._kill_task()  # suspend current view task
 
@@ -339,6 +342,7 @@ class IOTasks:
                         await d(300)
 
                 await self._setup_task()  # now bring it up again
+				engine_warm = None  # resetting blue LED required
 
             if (not io.sw_pressed) & io.switch_pressed():  # new BLF switch press; binary and to avoid short-circuiting
                 sw_tmr = tms()
@@ -371,6 +375,10 @@ class IOTasks:
                         self.view = 1
                         await self._setup_task()
 
+			if engine_warm != (ecu.ect >= _ENGINE_WARM_THRESH):
+				engine_warm = (ecu.ect >= _ENGINE_WARM_THRESH)
+				io.led_b(int(engine_warm))  # blue LED on if engine not warm yet
+			
             await d(0)  # let ECU work
 
 
