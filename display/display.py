@@ -1,15 +1,19 @@
-import ssd1306_vert  # cp ~/micropython/drivers/display/ssd1306.py ~/micropython/ports/esp8266/modules
-# oled = ssd1306_vert.SSD1306_I2C(128, 64, machine.I2C(-1, machine.Pin(5), machine.Pin(4)))
+try:
+    import ssd1306_vert as ssd1306  # cp ~/micropython/drivers/display/ssd1306.py ~/micropython/ports/esp8266/modules
+except ImportError:
+    import ssd1306
+# oled = ssd1306.SSD1306_I2C(128, 64, machine.I2C(-1, machine.Pin(5), machine.Pin(4)))
 
 
 class Display:
-    def __init__(self, i2c, width, height, symbol_width=8, symbol_height=8):
+    def __init__(self, i2c, width, height, symbol_width=8, symbol_height=8, **kwargs):
+        # OLED address can be specified with keyword argument: addr=0x3c
         self._width = width
         self._height = height
         self._swidth = symbol_width
         self._sheight = symbol_height
         self.cursor = None
-        self.oled = ssd1306_vert.SSD1306_I2C(self._width, self._height, i2c)
+        self.oled = ssd1306.SSD1306_I2C(self._width, self._height, i2c, **kwargs)
         self.clear()
 
     def clear(self):
