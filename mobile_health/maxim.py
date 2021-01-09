@@ -1,8 +1,17 @@
-# MicroPython library for different MAXIM health sensors.
+# MicroPython library for MAXIM MAX30205 and MAX30100 sensors.
 # Author: github.com/stecrz
 # Date: Jan 2021
 
 import struct
+
+
+def elem2idx(e, elems, idx=True):
+    # idx = If True, e is interpreted as an index if not found in elems.
+    if e not in elems or e is None:
+        if idx and isinstance(e, int) and 0 <= e < len(elems):
+            return e  # use as index
+        raise ValueError("possible params: " + str([x for x in elems if x is not None]))
+    return elems.index(e)
 
 
 class Sensor:
@@ -123,7 +132,7 @@ class MAX30205(Sensor):
     @os_delay.setter
     def os_delay(self, num_faults):
         # Sets the number of faults (44-50ms per conversion) required to trigger an OS condition.
-        self._write_config_bit(3, self.NUM_FAULTS.index(num_faults), n=2)
+        self._write_config_bit(3, elem2idx(num_faults, self.NUM_FAULTS, idx=False), n=2)
 
     @property
     def ext_data_format_enabled(self):
@@ -153,15 +162,6 @@ class MAX30205(Sensor):
         self._write(0x01, b'\x00')
         self.os_temp_os = 80
         self.os_temp_hyst = 75
-
-
-def elem2idx(e, elems, idx=True):
-    # idx = If True, e is interpreted as an index if not found in elems.
-    if e not in elems or e is None:
-        if idx and isinstance(e, int) and 0 <= e < len(elems):
-            return e  # use as index
-        raise ValueError("possible params: " + str([x for x in elems if x is not None]))
-    return elems.index(e)
 
 
 class MAX30100(Sensor):
